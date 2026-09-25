@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 from threading import Lock
 
-from anthropic import Anthropic
 from flask import Flask, jsonify, request
+import google.generativeai as genai
 
 
 app = Flask(__name__)
@@ -38,9 +38,9 @@ def index():
 
 @app.get("/get_question")
 def get_question():
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return jsonify({"error": "ANTHROPIC_API_KEY is not configured."}), 500
+        return jsonify({"error": "GEMINI_API_KEY is not configured."}), 500
 
     try:
         with MEMORY_LOCK:
@@ -59,20 +59,13 @@ Recent sessions:
 Return only the Arabic question, with no explanation and no quotation marks.
 """.strip()
 
-        client = Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        question = "".join(
-            block.text
-            for block in response.content
-            if getattr(block, "type", None) == "text"
-        ).strip()
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        question = response.text.strip()
 
         if not question:
-            return jsonify({"error": "Anthropic returned an empty question."}), 502
+            return jsonify({"error": "Gemini returned an empty question."}), 502
 
         return jsonify({"question": question})
     except (OSError, ValueError, json.JSONDecodeError) as error:

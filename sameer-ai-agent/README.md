@@ -11,7 +11,7 @@ python sameer-ai-agent/app.py
 
 The app listens on `0.0.0.0:8080`.
 
-Set `ANTHROPIC_API_KEY` in the environment before calling `GET /get_question`.
+Set `GEMINI_API_KEY` in the environment before calling `GET /get_question`.
 
 ## Endpoints
 
