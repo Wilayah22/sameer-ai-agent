@@ -24,13 +24,13 @@ args = "sameer-ai-agent"
 name = "sameer-ai-agent"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python sameer-ai-agent/app.py"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
+waitForPort = 8080
 
 [agent]
 stack = "PNPM_WORKSPACE"
