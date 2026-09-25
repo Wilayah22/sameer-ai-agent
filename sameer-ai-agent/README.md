@@ -16,4 +16,6 @@ Set `GEMINI_API_KEY` in the environment before calling `GET /get_question`.
 ## Endpoints
 
 - `GET /get_question` — generates a new Arabic question using the last 10 sessions.
-- `POST /save_rating` — accepts `{ "topic": "...", "category": "...", "rating": ... }`.
+- `POST /save_rating` — accepts `{ "topic": "...", "rating": ..., "category": "..." }`.
+  The category is optional and is inferred from the topic when omitted.
+- `GET /stats` — returns total sessions and average ratings overall and per category.
