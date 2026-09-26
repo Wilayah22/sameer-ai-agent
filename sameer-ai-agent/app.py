@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from threading import Lock
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 import google.generativeai as genai
 
 
@@ -171,8 +171,12 @@ def compute_personalization_stats(memory):
 
 @app.get("/")
 def index():
-    return "sameer-ai-agent is running."
+    return render_template("index.html")
 
+
+@app.get("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
 @app.get("/get_question")
 def get_question():
@@ -272,9 +276,10 @@ def stats():
             {
                 "total_sessions": personalization["total_sessions"],
                 "average_rating_overall": personalization["average_rating_overall"],
-                "average_rating_per_category": personalization[
-                    "average_rating_per_category"
-                ],
+            "average_rating_per_category": personalization[
+                "average_rating_per_category"
+            ],
+            "recent_topics": personalization["recent_topics"],
             }
         )
     except (OSError, ValueError, json.JSONDecodeError) as error:

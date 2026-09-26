@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة سمير</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0f2942; --navy-dark:#0a1930; --gold:#c9a227; --gold-light:#d9b84a;
+    --paper:#faf7ef; --paper2:#f1ecdd; --ink:#1b2430; --ink-soft:#5b6472; --line:#e4ddc9;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:32px 20px 70px;background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Sans Arabic",sans-serif;}
+  .wrap{max-width:1000px;margin:0 auto;}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--line);}
+  .logo{width:48px;height:48px;border-radius:12px;background:linear-gradient(155deg,var(--navy),var(--navy-dark));
+    display:flex;align-items:center;justify-content:center;flex:none;}
+  h1{font-family:"Cairo",sans-serif;font-size:24px;color:var(--navy);margin:0;}
+  p.sub{color:var(--ink-soft);font-size:13px;margin:4px 0 0;}
+  .bond-card{
+    background:linear-gradient(155deg,var(--navy),var(--navy-dark));
+    border-radius:20px;padding:28px;color:#f4ecd2;margin-bottom:20px;
+    box-shadow:0 12px 28px -14px rgba(15,41,66,.4);
+    position:relative;overflow:hidden;
+  }
+  .bond-card::after{content:"";position:absolute;inset:auto -50px -70px auto;width:220px;height:220px;
+    border-radius:50%;background:radial-gradient(circle,rgba(201,162,39,.22),transparent 70%);}
+  .bond-top{display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1;}
+  .bond-label{font-size:13.5px;color:#d9cfa9;}
+  .bond-face{font-size:32px;}
+  .bond-number{font-family:"Cairo",sans-serif;font-weight:800;font-size:52px;color:var(--gold-light);
+    direction:ltr;unicode-bidi:isolate;display:inline-block;margin-top:4px;}
+  .bond-number span{font-size:20px;color:#cbbf98;font-weight:600;}
+  .bond-bar{height:10px;border-radius:999px;background:rgba(255,255,255,.15);margin-top:16px;overflow:hidden;position:relative;z-index:1;}
+  .bond-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold-light));width:0%;transition:width .6s;}
+  .bond-caption{font-size:12.5px;color:#c9bf9c;margin-top:8px;position:relative;z-index:1;}
+
+  .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;}
+  .tile{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;text-align:center;
+    box-shadow:0 1px 2px rgba(15,41,66,.05);}
+  .tile .num{font-family:"Cairo",sans-serif;font-weight:800;font-size:26px;color:var(--navy);
+    direction:ltr;unicode-bidi:isolate;display:block;}
+  .tile .lbl{font-size:12.5px;color:var(--ink-soft);margin-top:6px;}
+
+  .panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;
+    box-shadow:0 1px 2px rgba(15,41,66,.05);}
+  .panel h2{font-size:16px;margin:0 0 16px;color:var(--navy);}
+  .cat-row{display:grid;grid-template-columns:120px 1fr 44px;gap:12px;align-items:center;margin-bottom:12px;}
+  .cat-name{font-size:13.5px;font-weight:600;}
+  .cat-track{height:9px;background:var(--paper2);border-radius:999px;overflow:hidden;}
+  .cat-fill{height:100%;background:linear-gradient(90deg,var(--navy),var(--gold));}
+  .cat-val{font-size:12.5px;color:var(--ink-soft);direction:ltr;unicode-bidi:isolate;text-align:left;}
+  .empty{color:var(--ink-soft);font-size:13px;margin:0;}
+
+  .topics{display:flex;flex-direction:column;gap:10px;}
+  .topic-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--paper2);}
+  .topic-badge{flex:none;width:28px;height:28px;border-radius:8px;background:var(--navy);color:var(--gold-light);
+    display:flex;align-items:center;justify-content:center;font-family:"Cairo",sans-serif;font-weight:700;font-size:12.5px;}
+  .topic-text{font-size:13.5px;line-height:1.5;}
+
+  .badges{display:flex;flex-wrap:wrap;gap:10px;}
+  .badge{display:flex;align-items:center;gap:7px;padding:9px 13px;border-radius:12px;font-size:12.5px;font-weight:600;
+    background:var(--navy);color:var(--gold-light);}
+
+  footer{margin-top:24px;text-align:center;font-size:12px;color:var(--ink-soft);}
+  @media(max-width:640px){.stats-row{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="#d9b84a" stroke-width="1.6"/>
+        <circle cx="9" cy="10.5" r="1.1" fill="#d9b84a"/>
+        <circle cx="15" cy="10.5" r="1.1" fill="#d9b84a"/>
+        <path d="M8.5 14.5c1 1 5 1 6 0" stroke="#d9b84a" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div>
+      <h1>لوحة سمير</h1>
+      <p class="sub">مؤشرات تفاعل العائلة مع روبوت الحوار الأسري — بيانات حية من الخادم</p>
+    </div>
+  </header>
+
+  <div class="bond-card">
+    <div class="bond-top">
+      <div>
+        <div class="bond-label">مؤشر الرابطة الأسرية</div>
+        <div class="bond-number" id="bondNum">0<span>/100</span></div>
+      </div>
+      <div class="bond-face" id="bondFace">🌱</div>
+    </div>
+    <div class="bond-bar"><div class="bond-fill" id="bondFill"></div></div>
+    <div class="bond-caption" id="bondCaption">يُحسب من تكرار الجلسات، متوسط التقييم، وتنوع المواضيع</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="tile"><span class="num" id="sessions">0</span><div class="lbl">إجمالي الجلسات</div></div>
+    <div class="tile"><span class="num" id="avgRating">0.0</span><div class="lbl">متوسط التقييم من 3</div></div>
+    <div class="tile"><span class="num" id="catCount">0</span><div class="lbl">فئات مغطاة من 5</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>التقييم حسب الفئة</h2>
+    <div id="catList"><p class="empty">جاري التحميل...</p></div>
+  </div>
+
+  <div class="panel">
+    <h2>آخر المواضيع</h2>
+    <div class="topics" id="topicsList"><p class="empty">جاري التحميل...</p></div>
+  </div>
+
+  <div class="panel">
+    <h2>حماية وخصوصية</h2>
+    <div class="badges">
+      <span class="badge">✓ بدون كاميرا</span>
+      <span class="badge">✓ بدون تسجيل صوتي دائم</span>
+      <span class="badge">✓ تصفية محتوى حسب العمر</span>
+    </div>
+  </div>
+
+  <footer>لوحة متابعة لمشروع سمير — جائزة نورة الملاحي للابتكار الاجتماعي التقني</footer>
+</div>
+
+<script>
+function faceFor(score){
+  if (score >= 75) return "😄";
+  if (score >= 50) return "🙂";
+  if (score >= 25) return "😐";
+  return "🌱";
+}
+function captionFor(score){
+  if (score >= 75) return "العائلة متفاعلة جدًا — استمروا على هذا المستوى";
+  if (score >= 50) return "تفاعل جيد ومستقر — جرّبوا فئات جديدة من الأسئلة";
+  if (score >= 25) return "بداية جيدة — كل جلسة إضافية ترفع المؤشر";
+  return "لسا بالبداية — أول جلسة عائلية تبدأ المؤشر بالتحرك";
+}
+
+fetch('/stats')
+  .then(r => r.json())
+  .then(data => {
+    const sessions = data.total_sessions || 0;
+    const avg = data.average_rating_overall || 0;
+    const cats = data.average_rating_per_category || {};
+    const topics = data.recent_topics || [];
+    const catCount = Object.keys(cats).length;
+
+    const bond = Math.round(
+      Math.min(sessions / 20, 1) * 40 +
+      (avg / 3) * 45 +
+      Math.min(catCount / 5, 1) * 15
+    );
+
+    document.getElementById('bondNum').innerHTML = bond + '<span>/100</span>';
+    document.getElementById('bondFill').style.width = bond + '%';
+    document.getElementById('bondFace').textContent = faceFor(bond);
+    document.getElementById('bondCaption').textContent = captionFor(bond);
+
+    document.getElementById('sessions').textContent = sessions;
+    document.getElementById('avgRating').textContent = avg.toFixed(1);
+    document.getElementById('catCount').textContent = catCount;
+
+    const catList = document.getElementById('catList');
+    if (catCount === 0) {
+      catList.innerHTML = '<p class="empty">لا توجد بيانات كافية بعد — بعد أول جلسة عائلية ستظهر هنا</p>';
+    } else {
+      catList.innerHTML = '';
+      Object.keys(cats).forEach(name => {
+        const val = cats[name];
+        const pct = Math.max(4, (val / 3) * 100);
+        catList.innerHTML += `
+          <div class="cat-row">
+            <span class="cat-name">${name}</span>
+            <span class="cat-track"><span class="cat-fill" style="width:${pct}%"></span></span>
+            <span class="cat-val">${val.toFixed(1)}</span>
+          </div>`;
+      });
+    }
+
+    const topicsList = document.getElementById('topicsList');
+    if (topics.length === 0) {
+      topicsList.innerHTML = '<p class="empty">لم تُسجَّل مواضيع بعد</p>';
+    } else {
+      topicsList.innerHTML = '';
+      topics.forEach((t, i) => {
+        topicsList.innerHTML += `
+          <div class="topic-row">
+            <span class="topic-badge">${i + 1}</span>
+            <span class="topic-text">${t}</span>
+          </div>`;
+      });
+    }
+  })
+  .catch(() => {
+    document.getElementById('catList').innerHTML = '<p class="empty">تعذر الاتصال بالخادم</p>';
+  });
+</script>
+</body>
+</html>

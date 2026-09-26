@@ -1,0 +1,1 @@
+- [Flask artifact publishing](flask-artifact-publishing.md) — artifact services run from their own directory, so published Flask commands and root routing must use artifact-relative paths.
