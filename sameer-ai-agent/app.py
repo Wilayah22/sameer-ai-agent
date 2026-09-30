@@ -1,172 +1,122 @@
 import json
 import os
-from collections import defaultdict
-from pathlib import Path
-from threading import Lock
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, request, render_template
-import google.generativeai as genai
+from flask import Flask, jsonify, render_template, request
 
+import gemini_client
+from dashboard_data import build_dashboard, demo_memory, rule_based_insight
+from memory_store import (
+    CATEGORIES,
+    MEMORY_LOCK,
+    build_session,
+    choose_category,
+    compute_personalization_stats,
+    family_ages,
+    find_session,
+    last_evaluation_tip,
+    load_memory,
+    new_session,
+    parse_rating,
+    recent_topics,
+    save_memory,
+)
+from session_logic import CHECK_AGAIN_SECONDS, WRAP_UP_TEXT, decide_intervention, evaluate
+
+TIMEZONE = ZoneInfo(os.environ.get("SAMEER_TZ", "Asia/Riyadh"))
+MEMORY_ERRORS = (OSError, ValueError, json.JSONDecodeError)
+MAX_MEMBERS = 12
 
 app = Flask(__name__)
-MEMORY_PATH = Path(__file__).with_name("memory.json")
-MEMORY_LOCK = Lock()
 
 
-def load_memory():
-    if not MEMORY_PATH.exists():
-        save_memory({"sessions": []})
-
-    with MEMORY_PATH.open("r", encoding="utf-8") as memory_file:
-        memory = json.load(memory_file)
-
-    if not isinstance(memory, dict) or not isinstance(memory.get("sessions"), list):
-        raise ValueError('memory.json must contain a "sessions" list.')
-
-    return memory
+class BadRequest(Exception):
+    pass
 
 
-def save_memory(memory):
-    with MEMORY_PATH.open("w", encoding="utf-8") as memory_file:
-        json.dump(memory, memory_file, ensure_ascii=False, indent=2)
-        memory_file.write("\n")
+def json_body():
+    payload = request.get_json(silent=True)
+    if payload is None and not request.data:
+        return {}
+    if not isinstance(payload, dict):
+        raise BadRequest("Request body must be a JSON object.")
+    return payload
 
 
-def infer_category(topic):
-    text = str(topic or "").strip().lower()
-    category_keywords = {
-        "دينية": (
-            "دين",
-            "ديني",
-            "قرآن",
-            "صلاة",
-            "صيام",
-            "رمضان",
-            "دعاء",
-            "مسجد",
-            "الله",
-            "نبي",
-            "religion",
-            "quran",
-            "prayer",
-        ),
-        "مهارات تواصل": (
-            "تواصل",
-            "حوار",
-            "نقاش",
-            "استماع",
-            "تحدث",
-            "تعبير",
-            "مشاعر",
-            "رأي",
-            "اعتذار",
-            "اعتذر",
-            "نعتذر",
-            "communication",
-            "conversation",
-            "listening",
-            "feelings",
-        ),
-        "اجتماعية": (
-            "صديق",
-            "أصدقاء",
-            "عائلة",
-            "تعاون",
-            "تعاو",
-            "مساعدة",
-            "مجتمع",
-            "جار",
-            "زميل",
-            "علاقة",
-            "خلاف",
-            "عائل",
-            "friend",
-            "family",
-            "community",
-            "teamwork",
-        ),
-        "حياتية": (
-            "يوم",
-            "وقت",
-            "نوم",
-            "صحة",
-            "غذاء",
-            "عادة",
-            "مسؤولية",
-            "مدرسة",
-            "منزل",
-            "قرار",
-            "daily",
-            "health",
-            "habit",
-            "school",
-            "responsibility",
-        ),
-    }
-
-    for category, keywords in category_keywords.items():
-        if any(keyword in text for keyword in keywords):
-            return category
-    return "عام"
-
-
-def session_category(session):
-    category = session.get("category")
-    if isinstance(category, str) and category.strip():
-        return category.strip()
-    return infer_category(session.get("topic"))
-
-
-def numeric_rating(value):
+def number(payload, key, default=None):
+    value = payload.get(key, default)
+    if value is None:
+        if default is None:
+            raise BadRequest(f"Field '{key}' is required.")
+        return default
     try:
-        return float(value)
+        value = float(value)
     except (TypeError, ValueError):
+        raise BadRequest(f"Field '{key}' must be a number.") from None
+    if value < 0:
+        raise BadRequest(f"Field '{key}' must not be negative.")
+    return value
+
+
+def parse_age(value):
+    try:
+        age = int(float(value))
+    except (TypeError, ValueError):
+        raise BadRequest("Ages must be numbers.") from None
+    if not 1 <= age <= 120:
+        raise BadRequest("Each age must be between 1 and 120.")
+    return age
+
+
+def parse_ages(value):
+    if value in (None, ""):
         return None
+    if isinstance(value, str):
+        value = [part for part in value.replace("،", ",").split(",") if part.strip()]
+    if not isinstance(value, list):
+        raise BadRequest("Field 'ages' must be a list of numbers.")
+    return [parse_age(age) for age in value]
 
 
-def compute_personalization_stats(memory):
-    sessions = memory["sessions"]
-    category_ratings = defaultdict(list)
-    all_ratings = []
-    recent_topics = []
+def parse_members(value):
+    if not isinstance(value, list) or len(value) > MAX_MEMBERS:
+        raise BadRequest(f"Field 'members' must be a list of up to {MAX_MEMBERS} objects.")
+    members = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise BadRequest("Each member must be an object.")
+        role = str(item.get("role") or "").strip()[:30]
+        if not role:
+            raise BadRequest("Each member needs a 'role', e.g. الأب or الابنة.")
+        member = {"role": role}
+        if item.get("age") not in (None, ""):
+            member["age"] = parse_age(item["age"])
+        members.append(member)
+    return members
 
-    for session in sessions:
-        rating = numeric_rating(session.get("rating"))
-        if rating is not None:
-            category_ratings[session_category(session)].append(rating)
-            all_ratings.append(rating)
 
-    for session in reversed(sessions):
-        topic = session.get("topic")
-        if isinstance(topic, str) and topic.strip() and topic not in recent_topics:
-            recent_topics.append(topic.strip())
-            if len(recent_topics) == 5:
-                break
+@app.errorhandler(BadRequest)
+def bad_request(error):
+    return jsonify({"error": str(error)}), 400
 
-    average_rating_per_category = {
-        category: round(sum(ratings) / len(ratings), 2)
-        for category, ratings in category_ratings.items()
-    }
-    highest_average = (
-        max(average_rating_per_category.values())
-        if average_rating_per_category
-        else None
-    )
-    highest_rated_categories = [
-        category
-        for category, average in average_rating_per_category.items()
-        if average == highest_average
-    ]
 
-    return {
-        "total_sessions": len(sessions),
-        "average_rating_overall": (
-            round(sum(all_ratings) / len(all_ratings), 2) if all_ratings else 0.0
-        ),
-        "average_rating_per_category": average_rating_per_category,
-        "highest_rated_categories": highest_rated_categories,
-        "recent_topics": recent_topics,
-    }
+def pick_question(memory, now, occasion=None, ages=None):
+    """Choose a category and have Gemini write a question for it. Returns (category, question, source)."""
+    category, reasons = choose_category(memory, now, occasion)
+    app.logger.info("Category %s (%s)", category, "، ".join(reasons))
+    try:
+        question = gemini_client.generate_question(
+            category,
+            ages or family_ages(memory),
+            recent_topics(memory["sessions"], limit=10),
+            occasion,
+            last_evaluation_tip(memory),
+        )
+        return category, question, "gemini"
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Falling back to a built-in question: %s", error)
+        return category, gemini_client.FALLBACK_QUESTIONS[category], "fallback"
 
 
 @app.get("/")
@@ -178,91 +128,287 @@ def index():
 def dashboard():
     return render_template("dashboard.html")
 
+
+@app.route("/session_intro", methods=["GET", "POST"])
 @app.get("/get_question")
-def get_question():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return jsonify({"error": "GEMINI_API_KEY is not configured."}), 500
+def session_intro():
+    """Start a session on the device. Uses the question the family queued from the dashboard, if any."""
+    payload = json_body() if request.method == "POST" else request.args.to_dict()
+    ages = parse_ages(payload.get("ages"))
+    occasion = str(payload.get("occasion") or "").strip()[:60] or None
+    now = datetime.now(TIMEZONE)
 
     try:
         with MEMORY_LOCK:
             memory = load_memory()
-            recent_sessions = memory["sessions"][-10:]
-            personalization = compute_personalization_stats(memory)
-
-        category_averages = personalization["average_rating_per_category"]
-        highest_categories = personalization["highest_rated_categories"] or ["عام"]
-        recent_topics = personalization["recent_topics"] or ["لا توجد موضوعات سابقة"]
-
-        prompt = f"""
-Suggest one new Arabic family-discussion question for children aged 8-14.
-The family has historically rated these categories highest:
-{json.dumps(highest_categories, ensure_ascii=False)}
-
-Category average ratings:
-{json.dumps(category_averages, ensure_ascii=False, indent=2)}
-
-Lean toward the highest-rated categories while still suggesting a fresh,
-thoughtful question. Do not repeat any of the family's last 5 topics:
-{json.dumps(recent_topics, ensure_ascii=False, indent=2)}
-
-Use the recent sessions below for additional context. The question should be
-clear, warm, and suitable for a family conversation.
-
-Recent sessions:
-{json.dumps(recent_sessions, ensure_ascii=False, indent=2)}
-
-Return only the Arabic question, with no explanation and no quotation marks.
-""".strip()
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-3.8-flash")
-        response = model.generate_content(prompt)
-        question = response.text.strip()
-
-        if not question:
-            return jsonify({"error": "Gemini returned an empty question."}), 502
-
-        return jsonify({"question": question})
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+            queued = memory.get("suggestion") if (memory.get("suggestion") or {}).get("queued") else None
+            if queued:
+                memory.pop("suggestion")
+                save_memory(memory)
+    except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
-    except Exception as error:
-        app.logger.exception("Failed to generate a question")
-        return jsonify({"error": str(error)}), 502
 
+    if queued:
+        category, question, source = queued["category"], queued["question"], "dashboard"
+    else:
+        category, question, source = pick_question(memory, now, occasion, ages)
 
-@app.post("/save_rating")
-def save_rating():
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"error": "Request body must be a JSON object."}), 400
-
-    required_fields = ("topic", "rating")
-    missing_fields = [field for field in required_fields if field not in payload]
-    if missing_fields:
-        return jsonify(
-            {"error": f"Missing required fields: {', '.join(missing_fields)}."}
-        ), 400
-
-    category = payload.get("category")
-    session = {
-        "topic": payload["topic"],
-        "category": (
-            category.strip()
-            if isinstance(category, str) and category.strip()
-            else infer_category(payload["topic"])
-        ),
-        "rating": payload["rating"],
-    }
+    session = new_session(category, question, now)
     try:
         with MEMORY_LOCK:
             memory = load_memory()
             memory["sessions"].append(session)
             save_memory(memory)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    return jsonify(
+        {"session_id": session["id"], "category": category, "question": question, "source": source}
+    )
+
+
+@app.post("/session_followup")
+def session_followup():
+    """Called by the device during a session with simple engagement numbers only."""
+    payload = json_body()
+    session_id = payload.get("session_id")
+    elapsed = number(payload, "elapsed_seconds")
+    silence = number(payload, "silence_seconds", 0)
+    talking = bool(payload.get("talking", False))
+
+    try:
+        with MEMORY_LOCK:
+            session = find_session(load_memory(), session_id)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    if session is None:
+        return jsonify({"error": "Unknown session_id."}), 404
+    if "rating" in session:
+        return jsonify({"error": "This session has already been rated."}), 409
+
+    follow_ups = session.get("follow_ups", [])
+    action = decide_intervention(
+        elapsed,
+        silence,
+        talking,
+        len(follow_ups),
+        follow_ups[-1]["at"] if follow_ups else None,
+    )
+    if action == "wait":
+        return jsonify({"action": "wait", "check_again_seconds": CHECK_AGAIN_SECONDS})
+    if action == "wrap_up":
+        return jsonify({"action": "wrap_up", "text": WRAP_UP_TEXT})
+
+    try:
+        text = gemini_client.generate_follow_up(
+            session["category"], session["topic"], [f["text"] for f in follow_ups]
+        )
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Falling back to a built-in follow-up: %s", error)
+        text = gemini_client.FALLBACK_FOLLOW_UP
+
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            stored = find_session(memory, session_id)
+            if stored is not None:
+                stored.setdefault("follow_ups", []).append({"at": round(elapsed), "text": text})
+                save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    return jsonify({"action": "follow_up", "text": text, "check_again_seconds": CHECK_AGAIN_SECONDS})
+
+
+@app.post("/save_rating")
+def save_rating():
+    payload = json_body()
+    rating = parse_rating(payload.get("rating"))
+    if rating is None:
+        return jsonify({"error": "Field 'rating' must be 1, 2, or 3."}), 400
+
+    session_id = payload.get("session_id")
+    if not session_id and not payload.get("topic"):
+        return jsonify({"error": "Send either 'session_id' or 'topic'."}), 400
+
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            if session_id:
+                session = find_session(memory, session_id)
+                if session is None:
+                    return jsonify({"error": "Unknown session_id."}), 404
+                session["rating"] = rating
+                session["rated_at"] = now.isoformat(timespec="seconds")
+            else:
+                memory["sessions"].append(
+                    build_session(payload["topic"], rating, payload.get("category"), now)
+                )
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
     return jsonify({"status": "saved"})
+
+
+@app.post("/evaluate_session")
+def evaluate_session():
+    """Analyse participation numbers from the device and suggest improvements."""
+    payload = json_body()
+    session_id = payload.get("session_id")
+    duration = number(payload, "duration_seconds")
+    silence = payload.get("silence_seconds")
+    silence = None if silence is None else number(payload, "silence_seconds")
+
+    speakers = payload.get("speakers", [])
+    if not isinstance(speakers, list) or not all(isinstance(s, dict) for s in speakers):
+        return jsonify({"error": "Field 'speakers' must be a list of objects."}), 400
+    members_spoke = sorted(
+        {
+            str(s["member"]).strip()[:30]
+            for s in speakers
+            if s.get("member") and number(s, "talk_seconds", 0) > 0
+        }
+    )
+    speakers = [
+        {"talk_seconds": number(s, "talk_seconds", 0), "turns": number(s, "turns", 0)}
+        for s in speakers
+    ]
+
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            session = find_session(memory, session_id)
+            if session is None:
+                return jsonify({"error": "Unknown session_id."}), 404
+            result = evaluate(duration, silence, speakers, len(session.get("follow_ups", [])))
+            if members_spoke:
+                result["members_spoke"] = members_spoke
+            session["evaluation"] = result
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    return jsonify(result)
+
+
+@app.route("/family", methods=["GET", "POST"])
+def family():
+    """Family name, members' roles and ages. Nothing else about the family is stored."""
+    payload = json_body() if request.method == "POST" else {}
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            if request.method == "POST":
+                if "name" in payload:
+                    memory["family"]["name"] = str(payload["name"] or "").strip()[:40]
+                if "members" in payload:
+                    memory["family"]["members"] = parse_members(payload["members"])
+                if "ages" in payload:
+                    memory["family"]["ages"] = parse_ages(payload["ages"]) or []
+                save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify(memory["family"])
+
+
+def weekly_insight(memory, facts, now):
+    """Sameer's note, written by Gemini from the numbers and cached until a new session completes."""
+    key = f"{now.date().isoformat()}:{facts['sessions']}"
+    cached = memory.get("insight") or {}
+    if cached.get("key") == key:
+        return cached["text"], cached["source"]
+
+    if facts["sessions"] >= 3:
+        try:
+            text, source = gemini_client.generate_insight(facts), "gemini"
+        except gemini_client.GeminiUnavailable as error:
+            app.logger.error("Falling back to a rule-based insight: %s", error)
+            text, source = rule_based_insight(facts), "rules"
+    else:
+        text, source = rule_based_insight(facts), "rules"
+
+    with MEMORY_LOCK:
+        latest = load_memory()
+        latest["insight"] = {"key": key, "text": text, "source": source}
+        save_memory(latest)
+    return text, source
+
+
+@app.get("/api/dashboard")
+def dashboard_data():
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    data = build_dashboard(memory, now, TIMEZONE)
+    demo = data["kpis"]["sessions"] == 0 and not any(
+        s["status"] == "completed" for s in data["recent_sessions"]
+    )
+    if demo:
+        data = build_dashboard(demo_memory(now), now, TIMEZONE)
+        insight, source = rule_based_insight(data["facts"]), "demo"
+    else:
+        try:
+            insight, source = weekly_insight(memory, data["facts"], now)
+        except MEMORY_ERRORS as error:
+            return jsonify({"error": str(error)}), 500
+
+    suggestion = memory.get("suggestion")
+    data.update(
+        demo=demo,
+        insight={"text": insight, "source": source},
+        suggestion=suggestion,
+        generated_at=now.isoformat(timespec="seconds"),
+    )
+    data.pop("facts")
+    return jsonify(data)
+
+
+@app.post("/api/suggestion")
+def new_suggestion():
+    """Suggest the next session's question ("استكشف سؤالًا آخر")."""
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+        previous = memory.get("suggestion")
+        if previous:
+            # In-memory only: steers the pick away from the question being replaced.
+            memory["sessions"].append({"topic": previous["question"], "category": previous["category"]})
+        category, question, source = pick_question(memory, now)
+        suggestion = {"category": category, "question": question, "source": source, "queued": False}
+        with MEMORY_LOCK:
+            latest = load_memory()
+            latest["suggestion"] = suggestion
+            save_memory(latest)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify(suggestion)
+
+
+@app.post("/api/suggestion/queue")
+def queue_suggestion():
+    """"ابدأ جلسة": the next tap on the device asks this question."""
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+        suggestion = memory.get("suggestion")
+        if not suggestion:
+            category, question, source = pick_question(memory, datetime.now(TIMEZONE))
+            suggestion = {"category": category, "question": question, "source": source}
+        suggestion["queued"] = True
+        with MEMORY_LOCK:
+            latest = load_memory()
+            latest["suggestion"] = suggestion
+            save_memory(latest)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify(suggestion)
 
 
 @app.get("/stats")
@@ -271,24 +417,23 @@ def stats():
         with MEMORY_LOCK:
             memory = load_memory()
             personalization = compute_personalization_stats(memory)
-
-        return jsonify(
-            {
-                "total_sessions": personalization["total_sessions"],
-                "average_rating_overall": personalization["average_rating_overall"],
-            "average_rating_per_category": personalization[
-                "average_rating_per_category"
-            ],
-            "recent_topics": personalization["recent_topics"],
-            }
-        )
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
+
+    return jsonify(
+        {
+            "total_sessions": personalization["total_sessions"],
+            "average_rating_overall": personalization["average_rating_overall"],
+            "average_rating_per_category": personalization["average_rating_per_category"],
+            "recent_topics": personalization["recent_topics"],
+            "categories": list(CATEGORIES),
+        }
+    )
 
 
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=8080,
+        port=int(os.environ.get("PORT", 8080)),
         debug=False,
     )

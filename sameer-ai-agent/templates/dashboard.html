@@ -4,97 +4,230 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>لوحة سمير</title>
-<meta name="theme-color" content="#0a1930">
+<meta name="theme-color" content="#0A1930">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='3' y='5' width='42' height='34' rx='14' fill='%23d9b84a'/%3E%3Crect x='9' y='11' width='30' height='22' rx='9' fill='%230a1930'/%3E%3Ccircle cx='18' cy='21' r='3' fill='%23faf7ef'/%3E%3Ccircle cx='30' cy='21' r='3' fill='%23faf7ef'/%3E%3C/svg%3E">
-<script>try{var t=localStorage.getItem('sameer-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="/static/sameer.css">
-
+<link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol><symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol><symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.3 2.9 7.6 7 9.5 4.1-1.9 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></symbol><symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol><symbol id="i-touch" viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 10.5V9a1.5 1.5 0 0 1 3 0v3"/><path d="M15 11.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-.5a5 5 0 0 1-4-2L4.5 15a1.4 1.4 0 0 1 2.2-1.7L9 15.5"/></symbol><symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5h16v10H12l-4.5 4v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/></symbol><symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/></symbol><symbol id="i-camera-off" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3"/><path d="M3 3l18 18"/></symbol><symbol id="i-mic-off" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/><path d="M3 3l18 18"/></symbol><symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></symbol><symbol id="i-sprout" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-6 7-6 0 4-3 6-7 6z"/><path d="M12 15c0-3-2-5-6-5 0 3 2 5 6 5z"/></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9.5" r="2.4"/><path d="M3 19c.5-3.5 3-5.5 6-5.5s5.5 2 6 5.5M15.5 14c2.5-.3 4.8 1.2 5.5 4.5"/></symbol><symbol id="i-led" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol><symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.5 8.5 0 0 1 12 0M9 16.5a4 4 0 0 1 6 0"/><circle cx="12" cy="20" r=".8" fill="currentColor"/></symbol><symbol id="i-base" viewBox="0 0 24 24"><path d="M4 17c0-3 3.5-5 8-5s8 2 8 5v1.5c0 1-3.5 2-8 2s-8-1-8-2z"/><path d="M4 17c0 1.5 3.5 2.5 8 2.5s8-1 8-2.5"/></symbol><symbol id="i-face-screen" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="13" rx="4"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/><path d="M9.5 13.5c1.5 1.5 3.5 1.5 5 0"/><path d="M9 21h6"/></symbol><symbol id="i-award" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.5 7 21l5-2.5 5 2.5-1.5-7.5"/></symbol><symbol id="i-f-flat" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 15h7"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></symbol><symbol id="i-f-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14c1 1.5 2 2 3.5 2s2.5-.5 3.5-2"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></symbol><symbol id="i-f-joy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 10.5c.5-1 1.5-1 2 0M14 10.5c.5-1 1.5-1 2 0"/><path d="M8 14h8c0 2.5-2 4-4 4s-4-1.5-4-4z"/></symbol></defs></svg>
-<a class="skip" href="#main">تخطَّ إلى المحتوى</a>
-<header class="site-header">
-  <div class="wrap header-in">
-    <a class="brand" href="/" aria-label="سمير، حوار يجمعنا. الصفحة الرئيسية"><svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><rect x="3" y="5" width="42" height="34" rx="14" fill="#d9b84a"/><rect x="9" y="11" width="30" height="22" rx="9" fill="#0a1930"/><circle cx="18" cy="21" r="3" fill="#faf7ef"/><circle cx="30" cy="21" r="3" fill="#faf7ef"/><path d="M19 27c3 3 7 3 10 0" stroke="#faf7ef" stroke-width="2.4" stroke-linecap="round" fill="none"/><rect x="17" y="40" width="14" height="4" rx="2" fill="#d9b84a"/></svg><span class="brand-text"><b>سمير</b><span>حوار يجمعنا</span></span></a>
-    <button class="icon-btn" type="button" data-theme-toggle aria-pressed="false" aria-label="الوضع الداكن"><svg class="icon i-sun" aria-hidden="true"><use href="#i-sun"/></svg><svg class="icon i-moon" aria-hidden="true"><use href="#i-moon"/></svg></button>
-    <button class="icon-btn menu-btn" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-nav" aria-label="القائمة"><svg class="icon i-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon i-close" aria-hidden="true"><use href="#i-close"/></svg></button>
-    <nav class="nav" id="site-nav" aria-label="التنقل الرئيسي">
-      <a href="/#how">كيف يعمل</a>
-      <a href="/#trust">المميزات</a>
-      <a href="/#tech">التقنية</a>
-      <a href="/#award">الجائزة</a>
-      <a class="nav-cta" href="/dashboard" aria-current="page">لوحة سمير</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E6C766"/><stop offset="1" stop-color="#C9A227"/></linearGradient>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8.5a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5h16v10H12l-4.5 4v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9.5" r="2.4"/><path d="M3 19c.5-3.5 3-5.5 6-5.5s5.5 2 6 5.5M15.5 14c2.5-.3 4.8 1.2 5.5 4.5"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2v.2h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
+    <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></symbol>
+    <symbol id="i-report" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1.1.9-1.1 1.6v.5"/><path d="M12 16.8v.1"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-dn" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.3 2.9 7.6 7 9.5 4.1-1.9 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M19 4v4h-4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="9" r="3.5"/><path d="M5.5 19.5c1-3.5 3.6-5 6.5-5s5.5 1.5 6.5 5"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/></symbol>
+    <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-6 7-6 0 4-3 6-7 6z"/><path d="M12 15c0-3-2-5-6-5 0 3 2 5 6 5z"/></symbol>
+  </defs>
+</svg>
+
+<template id="tpl-robot">
+  <svg class="robot" viewBox="56 40 288 384" data-mood="happy" aria-hidden="true">
+    <ellipse cx="200" cy="416" rx="110" ry="7" fill="#0A1930" opacity=".18"/>
+    <rect x="148" y="248" width="104" height="90" rx="30" fill="#101D33"/>
+    <path d="M70 392C70 350 120 322 200 322C280 322 330 350 330 392C330 408 290 418 200 418C110 418 70 408 70 392Z" fill="#17263F"/>
+    <ellipse cx="200" cy="337" rx="96" ry="13" fill="#22354F"/>
+    <path d="M76 386C130 398 270 398 324 386" fill="none" stroke="#D9B84A" stroke-width="5" stroke-linecap="round"/>
+    <rect x="60" y="50" width="280" height="220" rx="70" fill="#F5EDD9"/>
+    <path d="M282 51.04A70 70 0 0 1 340 120L340 200A70 70 0 0 1 282 268.96C298 210 298 110 282 51.04Z" fill="#E6D8B4"/>
+    <rect x="78" y="74" width="200" height="172" rx="44" fill="#0D1B31"/>
+    <circle cx="320" cy="92" r="13" fill="#0D1B31" stroke="#D9B84A" stroke-width="4"/><circle cx="320" cy="92" r="4.5" fill="#D9B84A"/>
+    <circle cx="320" cy="196" r="14" fill="#F1E6C6" stroke="#D9B84A" stroke-width="4"/>
+    <g class="face f-happy" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round">
+      <path d="M104 160Q128 128 152 160M204 160Q228 128 252 160"/><path d="M150 200Q178 228 206 200"/>
+    </g>
+    <g class="face f-listen">
+      <circle cx="128" cy="150" r="26" fill="#fff"/><circle cx="134" cy="152" r="16" fill="#0D1B31"/>
+      <circle cx="228" cy="150" r="26" fill="#fff"/><circle cx="234" cy="152" r="16" fill="#0D1B31"/>
+      <path d="M160 206Q178 218 196 206" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+    </g>
+    <g class="face f-think">
+      <circle cx="128" cy="150" r="26" fill="#fff"/><circle cx="138" cy="141" r="15" fill="#0D1B31"/>
+      <circle cx="228" cy="150" r="26" fill="#fff"/><circle cx="238" cy="141" r="15" fill="#0D1B31"/>
+      <circle class="d" cx="156" cy="210" r="7" fill="#D9B84A"/><circle class="d" cx="178" cy="210" r="7" fill="#D9B84A"/><circle class="d" cx="200" cy="210" r="7" fill="#D9B84A"/>
+    </g>
+  </svg>
+</template>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="القائمة الجانبية">
+    <a class="logo" href="/" aria-label="سمير، الصفحة الرئيسية للموقع">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="3" y="5" width="42" height="34" rx="14" fill="#D9B84A"/><rect x="9" y="11" width="30" height="22" rx="9" fill="#0A1930"/><circle cx="18" cy="21" r="3" fill="#FAF7EF"/><circle cx="30" cy="21" r="3" fill="#FAF7EF"/><path d="M19 27c3 3 7 3 10 0" stroke="#FAF7EF" stroke-width="2.4" stroke-linecap="round" fill="none"/><rect x="17" y="40" width="14" height="4" rx="2" fill="#D9B84A"/></svg>
+      <div><b>سمير</b><span>رفيق الحوار العائلي</span></div>
+    </a>
+    <nav class="nav" aria-label="أقسام اللوحة">
+      <a href="#top" data-nav="top" aria-current="true"><svg class="i"><use href="#i-home"/></svg>الرئيسية</a>
+      <a href="#sessions" data-nav="sessions"><svg class="i"><use href="#i-chat"/></svg>جلسات الحوار</a>
+      <a href="#family" data-nav="family"><svg class="i"><use href="#i-users"/></svg>العائلة</a>
+      <a href="#topics" data-nav="topics"><svg class="i"><use href="#i-bulb"/></svg>المواضيع</a>
+      <a href="#sessions" data-nav="memories" data-filter="الذكريات"><svg class="i"><use href="#i-photo"/></svg>الذكريات</a>
+      <a href="#trend" data-nav="trend"><svg class="i"><use href="#i-report"/></svg>التقارير</a>
+      <a href="#settings" data-nav="settings" data-open-settings><svg class="i"><use href="#i-settings"/></svg>الإعدادات</a>
     </nav>
-  </div>
-</header>
-<main id="main">
-<div class="wrap dash-page">
-  <div class="page-head">
+    <div class="side-foot">
+      <div class="side-robot"><span data-robot="happy"></span><div><b>سمير معكم دائمًا</b><span>جاهز على المائدة</span></div></div>
+      <button class="family-btn" type="button" data-open-settings>
+        <span class="fam-av"><svg class="i"><use href="#i-users"/></svg></span>
+        <span class="fam-name"><span data-bind="family-name">عائلتي</span><small>تعديل أفراد العائلة</small></span>
+        <svg class="i"><use href="#i-down"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main" id="top">
+    <header class="topbar">
+      <div class="hello">
+        <button class="menu-btn" type="button" data-menu aria-label="القائمة" aria-expanded="false" aria-controls="sidebar"><svg class="i"><use href="#i-menu"/></svg></button>
+        <div>
+          <h1>مرحبًا، <span data-bind="family-name">عائلتي</span></h1>
+          <p>إليك ملخص تفاعل عائلتكم هذا الأسبوع</p>
+        </div>
+      </div>
+      <div class="tools">
+        <label class="search">
+          <span class="sr-only">ابحث في الجلسات أو المواضيع</span>
+          <input type="search" data-search placeholder="ابحث في الجلسات أو المواضيع…">
+          <svg class="i"><use href="#i-search"/></svg>
+        </label>
+        <div style="position:relative">
+          <button class="icon-btn" type="button" data-bell aria-label="آخر التحديثات" aria-expanded="false"><svg class="i"><use href="#i-bell"/></svg><span class="dot" data-bell-dot hidden></span></button>
+          <div class="popover" data-bell-pop hidden><h3>آخر التحديثات</h3><ul data-updates></ul></div>
+        </div>
+        <button class="profile" type="button" data-open-settings aria-label="إعدادات العائلة">
+          <span class="fam-av"><svg class="i" style="width:16px;height:16px"><use href="#i-users"/></svg></span>
+          <span class="name" data-bind="family-name">عائلتي</span>
+          <svg class="i" style="width:16px;height:16px;color:var(--text-2)"><use href="#i-down"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="demo-note" data-demo hidden role="note">
+      <svg class="i"><use href="#i-sparkle"/></svg>
+      <span><b>بيانات تجريبية:</b> تظهر بيانات عائلتكم هنا تلقائيًا بعد أول جلسة مكتملة مع سمير.</span>
+    </div>
+
+    <div class="grid">
+      <section class="card bond c5" aria-labelledby="bond-h">
+        <div class="ring" role="img" data-bond-ring aria-label="مؤشر الترابط العائلي">
+          <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/><circle class="bar" data-bond-bar cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-dasharray="326.7" stroke-dashoffset="326.7"/></svg>
+          <div class="ring-val"><b class="num" data-bond-value>0</b><span>/ 100</span></div>
+        </div>
+        <div class="bond-text">
+          <h2 id="bond-h">مؤشر الترابط العائلي</h2>
+          <p class="bond-label" data-bond-label>—</p>
+          <span class="trend-pill" data-bond-trend></span>
+          <p class="bond-note">يُحسب من نشاط الحوار: عدد الجلسات، وتقييمكم لها، وتنوع المواضيع.</p>
+        </div>
+      </section>
+
+      <section class="card welcome c7" aria-labelledby="welcome-h">
+        <div>
+          <h2 id="welcome-h">جلسة الليلة تبدأ بسؤال</h2>
+          <p>جهّزوا السؤال التالي من هنا، ثم المسوا شاشة سمير على المائدة ليبدأ الحوار. التقنية تبدأ الحوار، لكنها لا تستبدل الجلسة العائلية.</p>
+          <div class="actions">
+            <button class="btn btn-gold" type="button" data-queue><svg class="i"><use href="#i-plus"/></svg>ابدأ جلسة جديدة</button>
+            <button class="btn btn-line" type="button" data-explore><svg class="i"><use href="#i-sparkle"/></svg>استكشف سؤالًا جديدًا</button>
+          </div>
+          <p class="queued" data-queued hidden><svg class="i"><use href="#i-check"/></svg>السؤال جاهز على سمير. المسوا الروبوت لبدء الجلسة.</p>
+        </div>
+        <span data-robot="listening"></span>
+      </section>
+
+      <article class="card kpi c3"><div class="kpi-top"><span>جلسات الحوار</span><span class="kpi-ico"><svg class="i"><use href="#i-chat"/></svg></span></div><b class="kpi-val num" data-kpi="sessions">—</b><span class="delta" data-delta="sessions"></span></article>
+      <article class="card kpi c3"><div class="kpi-top"><span>متوسط مدة الجلسة</span><span class="kpi-ico"><svg class="i"><use href="#i-clock"/></svg></span></div><b class="kpi-val num" data-kpi="duration">—</b><span class="delta" data-delta="duration"></span></article>
+      <article class="card kpi c3"><div class="kpi-top"><span>أفراد شاركوا</span><span class="kpi-ico"><svg class="i"><use href="#i-users"/></svg></span></div><b class="kpi-val num" data-kpi="participants">—</b><span class="delta" data-delta="participants"></span></article>
+      <article class="card kpi c3"><div class="kpi-top"><span>أسئلة تمت مناقشتها</span><span class="kpi-ico"><svg class="i"><use href="#i-question"/></svg></span></div><b class="kpi-val num" data-kpi="questions">—</b><span class="delta" data-delta="questions"></span></article>
+
+      <section class="card c8" id="trend" aria-labelledby="trend-h">
+        <div class="card-head">
+          <div><h2 id="trend-h">تطور الترابط العائلي</h2><p data-trend-sub>آخر 30 يومًا</p></div>
+          <label><span class="sr-only">الفترة</span>
+            <select class="select" data-range><option value="30">آخر 30 يومًا</option><option value="14">آخر 14 يومًا</option><option value="7">آخر 7 أيام</option></select>
+          </label>
+        </div>
+        <div class="chart-wrap" data-chart></div>
+        <div class="chart-legend"><span><i style="background:#C9A227"></i>مؤشر التفاعل (من 100)</span><span><i style="background:#fff;border:2px solid #C9A227"></i>يوم فيه جلسة</span></div>
+      </section>
+
+      <section class="card insight c4" aria-labelledby="insight-h">
+        <div class="insight-head"><span data-robot="happy" data-insight-robot></span><div><h2 id="insight-h">ملاحظة من سمير</h2><small><svg class="i" style="width:14px;height:14px"><use href="#i-sparkle"/></svg><span data-insight-src>من أرقام آخر 30 يومًا</span></small></div></div>
+        <p class="bubble" data-insight>…</p>
+        <div class="next">
+          <div class="next-label"><span>اقتراح الجلسة القادمة</span><span class="chip" data-next-cat hidden></span></div>
+          <p class="next-q" data-next-q>…</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-gold" type="button" data-queue>ابدأ جلسة</button>
+          <button class="btn btn-line" type="button" data-explore><svg class="i"><use href="#i-refresh"/></svg>استكشف سؤالًا آخر</button>
+        </div>
+      </section>
+
+      <section class="card c4" id="topics" aria-labelledby="topics-h">
+        <div class="card-head"><div><h2 id="topics-h">أكثر المواضيع تفاعلًا</h2><p>تقييم العائلة ونسبة الحوار في كل فئة</p></div></div>
+        <div class="bars" data-topics></div>
+      </section>
+
+      <section class="card c4" id="family" aria-labelledby="family-h">
+        <div class="card-head"><div><h2 id="family-h">مشاركة أفراد العائلة</h2><p>مستوى المشاركة في الجلسات</p></div><button class="link" type="button" data-open-settings>تعديل<svg class="i" style="width:16px;height:16px"><use href="#i-back"/></svg></button></div>
+        <div class="people" data-people></div>
+      </section>
+
+      <section class="card c4" id="sessions" aria-labelledby="sessions-h">
+        <div class="card-head"><div><h2 id="sessions-h">آخر جلسات الحوار</h2></div><button class="link" type="button" data-show-all>عرض الكل<svg class="i" style="width:16px;height:16px"><use href="#i-back"/></svg></button></div>
+        <div class="chips" data-filters hidden></div>
+        <div class="sessions" data-sessions></div>
+      </section>
+    </div>
+
+    <footer class="privacy" role="contentinfo">
+      <span class="p-main"><svg class="i"><use href="#i-shield"/></svg><b>الخصوصية أولًا</b><span>لا توجد كاميرا • لا يوجد تسجيل صوتي دائم</span></span>
+      <span>تُحفظ ملخصات الجلسات فقط: الفئة، والسؤال، والمدة، والتقييم.</span>
+    </footer>
+  </main>
+</div>
+
+<dialog data-settings aria-labelledby="settings-h">
+  <form class="dlg" method="dialog" data-settings-form>
+    <h2 id="settings-h">إعدادات العائلة</h2>
+    <div><label for="fam-name">اسم العائلة</label><input class="field" id="fam-name" name="name" maxlength="40" placeholder="عائلة السالم"></div>
     <div>
-      <h1>لوحة سمير</h1>
-      <p>مؤشرات تفاعل العائلة مع روبوت الحوار الأسري — بيانات حية من الخادم</p>
+      <label>أفراد العائلة</label>
+      <p class="muted" style="margin:-4px 0 8px">الصفة والعمر فقط، ليختار سمير أسئلة تناسب الأعمار.</p>
+      <div data-members></div>
+      <button class="btn btn-line" type="button" data-add-member style="min-height:40px"><svg class="i"><use href="#i-plus"/></svg>إضافة فرد</button>
     </div>
-  </div>
-  <div class="dash" data-dash="full">
-  <div class="dash-tools">
-    <div class="group">
-      <span class="badge badge--demo" data-only="demo"><span class="dot"></span>بيانات تجريبية</span>
-      <span class="badge badge--live" data-only="api" hidden><span class="dot"></span>بيانات حية من الخادم</span>
-      <span class="stamp" data-el="stamp"></span>
+    <p class="form-err" data-form-err hidden></p>
+    <div class="dlg-actions">
+      <button class="btn btn-line" type="button" data-close-settings>إلغاء</button>
+      <button class="btn btn-gold" type="submit" value="save">حفظ</button>
     </div>
-    <div class="group">
-      <button class="btn btn--sm" type="button" data-action="add" data-only="demo"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>أضف جلسة تجريبية</button>
-      <button class="btn btn--sm btn--ghost" type="button" data-action="reset" data-only="demo">إعادة</button>
-      <button class="btn btn--sm btn--ghost" type="button" data-action="refresh" data-only="api" hidden>تحديث</button>
-    </div>
-  </div>
-  <div class="error-box" data-el="error" role="alert" hidden><span>تعذر الاتصال بالخادم</span><button class="btn btn--sm" type="button" data-action="retry">إعادة المحاولة</button></div>
-  <article class="bond-card" aria-label="مؤشر الرابطة الأسرية">
-    <div class="bond-top"><h3 class="bond-title">مؤشر الرابطة الأسرية</h3><span class="tier" data-el="tier"></span></div>
-    <div class="bond-main">
-      <div class="bond-num" aria-hidden="true"><span data-el="bond">0</span><small dir="ltr">/100</small></div>
-      <div class="bond-bar" role="progressbar" aria-label="مؤشر الرابطة الأسرية" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-el="bar"><span class="bond-fill" data-el="fill"></span><i style="inset-inline-start:25%"></i><i style="inset-inline-start:50%"></i><i style="inset-inline-start:75%"></i></div>
-      <p class="bond-caption" data-el="caption"></p>
-    </div>
-    <div class="parts">
-      <p class="parts-title">كيف يُحسب المؤشر</p>
-      <div class="part"><div class="part-row"><span>عدد الجلسات</span><b data-el="pv-sessions"></b></div><div class="part-track"><span class="part-fill" data-el="pf-sessions"></span></div></div>
-      <div class="part"><div class="part-row"><span>متوسط التقييم</span><b data-el="pv-rating"></b></div><div class="part-track"><span class="part-fill" data-el="pf-rating"></span></div></div>
-      <div class="part"><div class="part-row"><span>تنوع الفئات</span><b data-el="pv-cats"></b></div><div class="part-track"><span class="part-fill" data-el="pf-cats"></span></div></div>
-    </div>
-  </article>
-  <div class="stats">
-    <article class="card stat"><span class="stat-label">إجمالي الجلسات</span><span class="stat-val" data-el="sessions">0</span><span class="stat-hint">تُحتسب حتى 20 جلسة</span></article>
-    <article class="card stat"><span class="stat-label">متوسط التقييم</span><span class="stat-val" data-el="rating">0.0</span><span class="pips" data-el="rating-pips" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span><span class="stat-hint">من 3</span></article>
-    <article class="card stat"><span class="stat-label">فئات مغطاة</span><span class="stat-val" data-el="cats">0</span><span class="pips" data-el="cats-pips" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></span><span class="stat-hint">من 5</span></article>
-  </div>
-  <div class="panels">
-    <section class="card panel-card" aria-labelledby="full-cats-h"><h3 id="full-cats-h">التقييم حسب الفئة</h3><div class="list" data-el="catlist"></div></section>
-    <section class="card panel-card" aria-labelledby="full-topics-h"><h3 id="full-topics-h">آخر المواضيع</h3><div class="list" data-el="topics"></div></section>
-  </div>
-  <p class="sr-only" role="status" aria-live="polite" data-el="status"></p>
-</div>
-  <section class="card privacy-strip" aria-label="حماية وخصوصية">
-    <h3>حماية وخصوصية</h3>
-    <ul>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>بدون كاميرا</li>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>بدون تسجيل صوتي دائم</li>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>تصفية محتوى حسب العمر</li>
-    </ul>
-  </section>
-  <p style="margin-top:var(--s-5);color:var(--text-muted);font-size:var(--fs-1)">لوحة متابعة لمشروع سمير — جائزة نورة الملاحي للابتكار الاجتماعي التقني</p>
-</div>
-</main>
-<footer class="site-footer">
-  <div class="wrap foot-in">
-    <span>سمير، حوار يجمعنا. مشروع مقدّم إلى جائزة نورة الملاحي للابتكار الاجتماعي والتقني.</span>
-    <a href="/#top">العودة إلى الأعلى</a>
-  </div>
-</footer>
-<script>window.SAMEER_CONFIG = { statsUrl: '/stats' };</script>
-<script src="/static/sameer.js" defer></script>
+  </form>
+</dialog>
+
+<script src="/static/dashboard.js" defer></script>
 </body>
 </html>
