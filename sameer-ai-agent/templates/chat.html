@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>لوحة سمير</title>
+<title>تحدث مع سمير</title>
 <meta name="theme-color" content="#0a1930">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='3' y='5' width='42' height='34' rx='14' fill='%23d9b84a'/%3E%3Crect x='9' y='11' width='30' height='22' rx='9' fill='%230a1930'/%3E%3Ccircle cx='18' cy='21' r='3' fill='%23faf7ef'/%3E%3Ccircle cx='30' cy='21' r='3' fill='%23faf7ef'/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('sameer-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
@@ -26,67 +26,45 @@
       <a href="/#trust">المميزات</a>
       <a href="/#tech">التقنية</a>
       <a href="/#award">الجائزة</a>
-      <a href="/chat">تحدث مع سمير</a>
-      <a class="nav-cta" href="/dashboard" aria-current="page">لوحة سمير</a>
+      <a href="/chat" aria-current="page">تحدث مع سمير</a>
+      <a class="nav-cta" href="/dashboard">لوحة سمير</a>
     </nav>
   </div>
 </header>
 <main id="main">
-<div class="wrap dash-page">
+<div class="wrap chat-page">
   <div class="page-head">
     <div>
-      <h1>لوحة سمير</h1>
-      <p>مؤشرات تفاعل العائلة مع روبوت الحوار الأسري — بيانات حية من الخادم</p>
-    </div>
-  </div>
-  <div class="dash" data-dash="full">
-  <div class="dash-tools">
-    <div class="group">
-      <span class="badge badge--demo" data-only="demo"><span class="dot"></span>بيانات تجريبية</span>
-      <span class="badge badge--live" data-only="api" hidden><span class="dot"></span>بيانات حية من الخادم</span>
-      <span class="stamp" data-el="stamp"></span>
+      <h1>تحدث مع سمير</h1>
+      <p>سمير يقترح أسئلة للحوار العائلي، يتذكر أفراد العائلة، ويحفظ تقييم كل جلسة.</p>
     </div>
     <div class="group">
-      <button class="btn btn--sm" type="button" data-action="add" data-only="demo"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>أضف جلسة تجريبية</button>
-      <button class="btn btn--sm btn--ghost" type="button" data-action="reset" data-only="demo">إعادة</button>
-      <button class="btn btn--sm btn--ghost" type="button" data-action="refresh" data-only="api" hidden>تحديث</button>
+      <button class="btn btn--sm btn--ghost" type="button" data-chat-reset>محادثة جديدة</button>
     </div>
   </div>
-  <div class="error-box" data-el="error" role="alert" hidden><span>تعذر الاتصال بالخادم</span><button class="btn btn--sm" type="button" data-action="retry">إعادة المحاولة</button></div>
-  <article class="bond-card" aria-label="مؤشر الرابطة الأسرية">
-    <div class="bond-top"><h3 class="bond-title">مؤشر الرابطة الأسرية</h3><span class="tier" data-el="tier"></span></div>
-    <div class="bond-main">
-      <div class="bond-num" aria-hidden="true"><span data-el="bond">0</span><small dir="ltr">/100</small></div>
-      <div class="bond-bar" role="progressbar" aria-label="مؤشر الرابطة الأسرية" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-el="bar"><span class="bond-fill" data-el="fill"></span><i style="inset-inline-start:25%"></i><i style="inset-inline-start:50%"></i><i style="inset-inline-start:75%"></i></div>
-      <p class="bond-caption" data-el="caption"></p>
+  <section class="card chat" aria-label="المحادثة مع سمير">
+    <div class="chat-log" data-chat-log role="log" aria-live="polite">
+      <div class="msg msg--sameer">أهلًا! أنا سمير 👋 عرّفوني على أنفسكم: من معنا اليوم، وكم أعماركم؟</div>
     </div>
-    <div class="parts">
-      <p class="parts-title">كيف يُحسب المؤشر</p>
-      <div class="part"><div class="part-row"><span>عدد الجلسات</span><b data-el="pv-sessions"></b></div><div class="part-track"><span class="part-fill" data-el="pf-sessions"></span></div></div>
-      <div class="part"><div class="part-row"><span>متوسط التقييم</span><b data-el="pv-rating"></b></div><div class="part-track"><span class="part-fill" data-el="pf-rating"></span></div></div>
-      <div class="part"><div class="part-row"><span>تنوع الفئات</span><b data-el="pv-cats"></b></div><div class="part-track"><span class="part-fill" data-el="pf-cats"></span></div></div>
+    <div class="chat-starters" data-chat-starters>
+      <button class="btn btn--sm btn--ghost" type="button">اقترح علينا سؤالًا للحوار</button>
+      <button class="btn btn--sm btn--ghost" type="button">أنا أحمد عمري 10 سنوات وأحب كرة القدم</button>
+      <button class="btn btn--sm btn--ghost" type="button">انتهينا من الحوار ونريد تقييم الجلسة</button>
     </div>
-  </article>
-  <div class="stats">
-    <article class="card stat"><span class="stat-label">إجمالي الجلسات</span><span class="stat-val" data-el="sessions">0</span><span class="stat-hint">تُحتسب حتى 20 جلسة</span></article>
-    <article class="card stat"><span class="stat-label">متوسط التقييم</span><span class="stat-val" data-el="rating">0.0</span><span class="pips" data-el="rating-pips" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span><span class="stat-hint">من 3</span></article>
-    <article class="card stat"><span class="stat-label">فئات مغطاة</span><span class="stat-val" data-el="cats">0</span><span class="pips" data-el="cats-pips" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></span><span class="stat-hint">من 5</span></article>
-  </div>
-  <div class="panels">
-    <section class="card panel-card" aria-labelledby="full-cats-h"><h3 id="full-cats-h">التقييم حسب الفئة</h3><div class="list" data-el="catlist"></div></section>
-    <section class="card panel-card" aria-labelledby="full-topics-h"><h3 id="full-topics-h">آخر المواضيع</h3><div class="list" data-el="topics"></div></section>
-  </div>
-  <p class="sr-only" role="status" aria-live="polite" data-el="status"></p>
-</div>
+    <form class="chat-form" data-chat-form>
+      <label class="sr-only" for="chat-input">رسالتك إلى سمير</label>
+      <textarea id="chat-input" name="message" rows="1" maxlength="2000" placeholder="اكتب رسالتك…" required></textarea>
+      <button class="btn" type="submit">إرسال</button>
+    </form>
+  </section>
   <section class="card privacy-strip" aria-label="حماية وخصوصية">
     <h3>حماية وخصوصية</h3>
     <ul>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>بدون كاميرا</li>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>بدون تسجيل صوتي دائم</li>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>تصفية محتوى حسب العمر</li>
+      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>محتوى مناسب للأطفال</li>
+      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>لا يطلب معلومات حساسة</li>
+      <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>يحفظ الأسماء والأعمار والاهتمامات فقط</li>
     </ul>
   </section>
-  <p style="margin-top:var(--s-5);color:var(--text-muted);font-size:var(--fs-1)">لوحة متابعة لمشروع سمير — جائزة نورة الملاحي للابتكار الاجتماعي التقني</p>
 </div>
 </main>
 <footer class="site-footer">
@@ -95,7 +73,7 @@
     <a href="/#top">العودة إلى الأعلى</a>
   </div>
 </footer>
-<script>window.SAMEER_CONFIG = { statsUrl: '/stats' };</script>
 <script src="/static/sameer.js" defer></script>
+<script src="/static/chat.js" defer></script>
 </body>
 </html>

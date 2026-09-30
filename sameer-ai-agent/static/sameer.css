@@ -569,3 +569,17 @@ button { font: inherit; }
 .header-in .nav { order: 2; }
 .header-in .icon-btn { order: 3; }
 .stamp { color: var(--text-muted); font-size: var(--fs-1); }
+
+/* ---------- محادثة سمير ---------- */
+.chat-page { padding-bottom: var(--s-8); }
+.chat { display: flex; flex-direction: column; gap: var(--s-4); padding: var(--s-4); min-height: 60vh; }
+.chat-log { flex: 1; display: flex; flex-direction: column; gap: var(--s-3); overflow-y: auto; max-height: 62vh; padding: var(--s-2); }
+.msg { max-width: min(85%, 40rem); padding: var(--s-3) var(--s-4); border-radius: var(--r-md); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg--user { align-self: flex-start; background: var(--brand); color: var(--on-brand); border-end-start-radius: var(--r-sm); }
+.msg--sameer { align-self: flex-end; background: var(--surface-sunk); color: var(--text); border: 1px solid var(--border); border-end-end-radius: var(--r-sm); }
+.msg--error { align-self: center; color: var(--danger); border: 1.5px solid var(--danger); background: transparent; font-weight: 600; }
+.msg--typing { color: var(--text-muted); }
+.chat-starters { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.chat-form { display: flex; gap: var(--s-2); align-items: flex-end; }
+.chat-form textarea { flex: 1; min-height: 48px; max-height: 10rem; resize: vertical; padding: var(--s-3) var(--s-4); border: 1.5px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface); color: var(--text); font: 500 var(--fs-2)/1.6 var(--font-body); }
+.chat-form textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
