@@ -6,12 +6,14 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, render_template, request
 
 import gemini_client
+from dashboard_data import build_dashboard, demo_memory, rule_based_insight
 from memory_store import (
     CATEGORIES,
     MEMORY_LOCK,
     build_session,
     choose_category,
     compute_personalization_stats,
+    family_ages,
     find_session,
     last_evaluation_tip,
     load_memory,
@@ -24,6 +26,7 @@ from session_logic import CHECK_AGAIN_SECONDS, WRAP_UP_TEXT, decide_intervention
 
 TIMEZONE = ZoneInfo(os.environ.get("SAMEER_TZ", "Asia/Riyadh"))
 MEMORY_ERRORS = (OSError, ValueError, json.JSONDecodeError)
+MAX_MEMBERS = 12
 
 app = Flask(__name__)
 
@@ -56,6 +59,16 @@ def number(payload, key, default=None):
     return value
 
 
+def parse_age(value):
+    try:
+        age = int(float(value))
+    except (TypeError, ValueError):
+        raise BadRequest("Ages must be numbers.") from None
+    if not 1 <= age <= 120:
+        raise BadRequest("Each age must be between 1 and 120.")
+    return age
+
+
 def parse_ages(value):
     if value in (None, ""):
         return None
@@ -63,18 +76,47 @@ def parse_ages(value):
         value = [part for part in value.replace("،", ",").split(",") if part.strip()]
     if not isinstance(value, list):
         raise BadRequest("Field 'ages' must be a list of numbers.")
-    try:
-        ages = [int(float(age)) for age in value]
-    except (TypeError, ValueError):
-        raise BadRequest("Field 'ages' must be a list of numbers.") from None
-    if any(not 1 <= age <= 99 for age in ages):
-        raise BadRequest("Each age must be between 1 and 99.")
-    return ages
+    return [parse_age(age) for age in value]
+
+
+def parse_members(value):
+    if not isinstance(value, list) or len(value) > MAX_MEMBERS:
+        raise BadRequest(f"Field 'members' must be a list of up to {MAX_MEMBERS} objects.")
+    members = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise BadRequest("Each member must be an object.")
+        role = str(item.get("role") or "").strip()[:30]
+        if not role:
+            raise BadRequest("Each member needs a 'role', e.g. الأب or الابنة.")
+        member = {"role": role}
+        if item.get("age") not in (None, ""):
+            member["age"] = parse_age(item["age"])
+        members.append(member)
+    return members
 
 
 @app.errorhandler(BadRequest)
 def bad_request(error):
     return jsonify({"error": str(error)}), 400
+
+
+def pick_question(memory, now, occasion=None, ages=None):
+    """Choose a category and have Gemini write a question for it. Returns (category, question, source)."""
+    category, reasons = choose_category(memory, now, occasion)
+    app.logger.info("Category %s (%s)", category, "، ".join(reasons))
+    try:
+        question = gemini_client.generate_question(
+            category,
+            ages or family_ages(memory),
+            recent_topics(memory["sessions"], limit=10),
+            occasion,
+            last_evaluation_tip(memory),
+        )
+        return category, question, "gemini"
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Falling back to a built-in question: %s", error)
+        return category, gemini_client.FALLBACK_QUESTIONS[category], "fallback"
 
 
 @app.get("/")
@@ -90,7 +132,7 @@ def dashboard():
 @app.route("/session_intro", methods=["GET", "POST"])
 @app.get("/get_question")
 def session_intro():
-    """Start a session: pick a category, generate a question, and record the session."""
+    """Start a session on the device. Uses the question the family queued from the dashboard, if any."""
     payload = json_body() if request.method == "POST" else request.args.to_dict()
     ages = parse_ages(payload.get("ages"))
     occasion = str(payload.get("occasion") or "").strip()[:60] or None
@@ -99,20 +141,17 @@ def session_intro():
     try:
         with MEMORY_LOCK:
             memory = load_memory()
-        category, reasons = choose_category(memory, now, occasion)
-        ages = ages or memory["family"]["ages"]
-        avoid = recent_topics(memory["sessions"], limit=10)
-        tip = last_evaluation_tip(memory)
+            queued = memory.get("suggestion") if (memory.get("suggestion") or {}).get("queued") else None
+            if queued:
+                memory.pop("suggestion")
+                save_memory(memory)
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
-    source = "gemini"
-    try:
-        question = gemini_client.generate_question(category, ages, avoid, occasion, tip)
-    except gemini_client.GeminiUnavailable as error:
-        app.logger.error("Falling back to a built-in question: %s", error)
-        question = gemini_client.FALLBACK_QUESTIONS[category]
-        source = "fallback"
+    if queued:
+        category, question, source = queued["category"], queued["question"], "dashboard"
+    else:
+        category, question, source = pick_question(memory, now, occasion, ages)
 
     session = new_session(category, question, now)
     try:
@@ -123,14 +162,8 @@ def session_intro():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
-    app.logger.info("Session %s: %s (%s)", session["id"], category, "، ".join(reasons))
     return jsonify(
-        {
-            "session_id": session["id"],
-            "category": category,
-            "question": question,
-            "source": source,
-        }
+        {"session_id": session["id"], "category": category, "question": question, "source": source}
     )
 
 
@@ -198,6 +231,7 @@ def save_rating():
     if not session_id and not payload.get("topic"):
         return jsonify({"error": "Send either 'session_id' or 'topic'."}), 400
 
+    now = datetime.now(TIMEZONE)
     try:
         with MEMORY_LOCK:
             memory = load_memory()
@@ -206,10 +240,10 @@ def save_rating():
                 if session is None:
                     return jsonify({"error": "Unknown session_id."}), 404
                 session["rating"] = rating
-                session["rated_at"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
+                session["rated_at"] = now.isoformat(timespec="seconds")
             else:
                 memory["sessions"].append(
-                    build_session(payload["topic"], rating, payload.get("category"))
+                    build_session(payload["topic"], rating, payload.get("category"), now)
                 )
             save_memory(memory)
     except MEMORY_ERRORS as error:
@@ -230,6 +264,13 @@ def evaluate_session():
     speakers = payload.get("speakers", [])
     if not isinstance(speakers, list) or not all(isinstance(s, dict) for s in speakers):
         return jsonify({"error": "Field 'speakers' must be a list of objects."}), 400
+    members_spoke = sorted(
+        {
+            str(s["member"]).strip()[:30]
+            for s in speakers
+            if s.get("member") and number(s, "talk_seconds", 0) > 0
+        }
+    )
     speakers = [
         {"talk_seconds": number(s, "talk_seconds", 0), "turns": number(s, "turns", 0)}
         for s in speakers
@@ -242,6 +283,8 @@ def evaluate_session():
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
             result = evaluate(duration, silence, speakers, len(session.get("follow_ups", [])))
+            if members_spoke:
+                result["members_spoke"] = members_spoke
             session["evaluation"] = result
             save_memory(memory)
     except MEMORY_ERRORS as error:
@@ -252,17 +295,120 @@ def evaluate_session():
 
 @app.route("/family", methods=["GET", "POST"])
 def family():
-    """The children's ages, used to tailor questions. Nothing else about the family is stored."""
+    """Family name, members' roles and ages. Nothing else about the family is stored."""
+    payload = json_body() if request.method == "POST" else {}
     try:
         with MEMORY_LOCK:
             memory = load_memory()
             if request.method == "POST":
-                ages = parse_ages(json_body().get("ages")) or []
-                memory["family"]["ages"] = ages
+                if "name" in payload:
+                    memory["family"]["name"] = str(payload["name"] or "").strip()[:40]
+                if "members" in payload:
+                    memory["family"]["members"] = parse_members(payload["members"])
+                if "ages" in payload:
+                    memory["family"]["ages"] = parse_ages(payload["ages"]) or []
                 save_memory(memory)
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
     return jsonify(memory["family"])
+
+
+def weekly_insight(memory, facts, now):
+    """Sameer's note, written by Gemini from the numbers and cached until a new session completes."""
+    key = f"{now.date().isoformat()}:{facts['sessions']}"
+    cached = memory.get("insight") or {}
+    if cached.get("key") == key:
+        return cached["text"], cached["source"]
+
+    if facts["sessions"] >= 3:
+        try:
+            text, source = gemini_client.generate_insight(facts), "gemini"
+        except gemini_client.GeminiUnavailable as error:
+            app.logger.error("Falling back to a rule-based insight: %s", error)
+            text, source = rule_based_insight(facts), "rules"
+    else:
+        text, source = rule_based_insight(facts), "rules"
+
+    with MEMORY_LOCK:
+        latest = load_memory()
+        latest["insight"] = {"key": key, "text": text, "source": source}
+        save_memory(latest)
+    return text, source
+
+
+@app.get("/api/dashboard")
+def dashboard_data():
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    data = build_dashboard(memory, now, TIMEZONE)
+    demo = data["kpis"]["sessions"] == 0 and not any(
+        s["status"] == "completed" for s in data["recent_sessions"]
+    )
+    if demo:
+        data = build_dashboard(demo_memory(now), now, TIMEZONE)
+        insight, source = rule_based_insight(data["facts"]), "demo"
+    else:
+        try:
+            insight, source = weekly_insight(memory, data["facts"], now)
+        except MEMORY_ERRORS as error:
+            return jsonify({"error": str(error)}), 500
+
+    suggestion = memory.get("suggestion")
+    data.update(
+        demo=demo,
+        insight={"text": insight, "source": source},
+        suggestion=suggestion,
+        generated_at=now.isoformat(timespec="seconds"),
+    )
+    data.pop("facts")
+    return jsonify(data)
+
+
+@app.post("/api/suggestion")
+def new_suggestion():
+    """Suggest the next session's question ("استكشف سؤالًا آخر")."""
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+        previous = memory.get("suggestion")
+        if previous:
+            # In-memory only: steers the pick away from the question being replaced.
+            memory["sessions"].append({"topic": previous["question"], "category": previous["category"]})
+        category, question, source = pick_question(memory, now)
+        suggestion = {"category": category, "question": question, "source": source, "queued": False}
+        with MEMORY_LOCK:
+            latest = load_memory()
+            latest["suggestion"] = suggestion
+            save_memory(latest)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify(suggestion)
+
+
+@app.post("/api/suggestion/queue")
+def queue_suggestion():
+    """"ابدأ جلسة": the next tap on the device asks this question."""
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+        suggestion = memory.get("suggestion")
+        if not suggestion:
+            category, question, source = pick_question(memory, datetime.now(TIMEZONE))
+            suggestion = {"category": category, "question": question, "source": source}
+        suggestion["queued"] = True
+        with MEMORY_LOCK:
+            latest = load_memory()
+            latest["suggestion"] = suggestion
+            save_memory(latest)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify(suggestion)
 
 
 @app.get("/stats")

@@ -58,13 +58,13 @@ def _get_client():
         return _client
 
 
-def _generate(prompt):
+def _generate(prompt, system_instruction=SYSTEM_INSTRUCTION):
     try:
         response = _get_client().models.generate_content(
             model=MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
+                system_instruction=system_instruction,
                 temperature=0.9,
             ),
         )
@@ -108,6 +108,26 @@ def generate_follow_up(category, question, previous_follow_ups):
         "أعد السؤال فقط."
     )
     return _generate("\n".join(lines))
+
+
+INSIGHT_INSTRUCTION = """\
+أنت "سمير"، روبوت الحوار العائلي. تكتب للعائلة ملاحظة أسبوعية قصيرة في لوحتها.
+- جملة أو جملتان، لا تزيد عن 30 كلمة، بعربية فصحى دافئة، بصيغة المتكلم ("لاحظت أن...").
+- اعتمد فقط على الأرقام المعطاة، ولا تذكر رقمًا غير موجود فيها، ولا تخمّن ما قالته العائلة.
+- الأرقام عن نشاط الحوار (عدد الجلسات، مدتها، عدد المشاركين) وليست تقييمًا نفسيًا لأحد.
+- كن إيجابيًا ومشجعًا، ولا تلُم أحدًا، ولا تستخدم كلمات مثل مراقبة أو تتبع أو رصد.
+- بلا رموز تعبيرية وبلا علامات تنصيص.
+"""
+
+
+def generate_insight(facts):
+    prompt = (
+        "أرقام آخر 30 يومًا (weekend = الجمعة والسبت، weekdays = باقي الأيام، "
+        "engagement_by_category = نسبة التفاعل لكل فئة من 100):\n"
+        f"{_json(facts)}\n"
+        "اكتب ملاحظة واحدة لافتة ومفيدة للعائلة من هذه الأرقام."
+    )
+    return _generate(prompt, INSIGHT_INSTRUCTION)
 
 
 # Used only when Gemini is unavailable, so a tap on the device still starts a session.

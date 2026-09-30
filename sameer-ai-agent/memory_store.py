@@ -43,7 +43,7 @@ OCCASION_BOOSTS = {
 
 def load_memory():
     if not MEMORY_PATH.exists():
-        save_memory({"sessions": [], "family": {"ages": []}})
+        save_memory({"sessions": [], "family": {"name": "", "members": [], "ages": []}})
 
     with MEMORY_PATH.open("r", encoding="utf-8") as memory_file:
         memory = json.load(memory_file)
@@ -52,8 +52,9 @@ def load_memory():
         raise ValueError('memory.json must contain a "sessions" list.')
     if not isinstance(memory.get("family"), dict):
         memory["family"] = {"ages": []}
-    if not isinstance(memory["family"].get("ages"), list):
-        memory["family"]["ages"] = []
+    for key in ("members", "ages"):
+        if not isinstance(memory["family"].get(key), list):
+            memory["family"][key] = []
 
     return memory
 
@@ -115,9 +116,17 @@ def new_session(category, question, now):
     }
 
 
-def build_session(topic, rating, category=None):
+def family_ages(memory):
+    ages = [
+        m["age"] for m in memory["family"]["members"] if isinstance(m.get("age"), int) and m["age"] < 18
+    ]
+    return ages or memory["family"]["ages"]
+
+
+def build_session(topic, rating, category=None, now=None):
     return {
         "id": uuid.uuid4().hex[:12],
+        **({"started_at": now.isoformat(timespec="seconds")} if now else {}),
         "topic": topic,
         "category": (
             category.strip()

@@ -32,6 +32,9 @@ end → POST /evaluate_session       (optional, participation numbers)
 
 ### `POST /session_intro` (also `GET`, and `GET /get_question` for older firmware)
 
+If the family prepared a question from the dashboard ("ابدأ جلسة"), that question is used
+and `source` is `"dashboard"`.
+
 Body (all optional): `{ "ages": [9, 12], "occasion": "رمضان" }`
 
 ```json
@@ -67,7 +70,9 @@ after 20 s of silence, at most 3 times, at least 60 s apart, and wraps up after 
 }
 ```
 
-`speakers` are anonymous talk-time totals; send `[]` if the device can't tell voices apart.
+`speakers` are talk-time totals; send `[]` if the device can't tell voices apart. Each may carry
+an optional `"member": "الأب"` (a role from the family settings) for the dashboard's
+participation card.
 Returns a 1–3 `score`, `talk_ratio`, `balance` (0–1, how evenly people spoke), and Arabic
 `suggestions`. The first suggestion is passed to Gemini for the next question. When a session
 has no manual rating, this score counts in its place.
@@ -79,7 +84,21 @@ Older form still works: `{ "topic": "…", "rating": 2, "category": "…" }`.
 
 ### `GET|POST /family`
 
-`{ "ages": [9, 12] }`: the children's ages, used when the device doesn't send them.
+`{ "name": "عائلة السالم", "members": [{ "role": "الأب", "age": 44 }, { "role": "الابنة", "age": 9 }] }`.
+Members under 18 give Gemini the children's ages. Editable from the dashboard settings.
+
+## Dashboard (`/dashboard`)
+
+The dashboard reads `GET /api/dashboard`: the family bond index (same formula as before:
+sessions up to 20 → 40 pts, average rating of 3 → 45, categories of 5 → 15, over the last
+30 days) with its 30-day trend, KPIs compared with the previous 30 days, engagement per
+category, participation per family member, recent sessions, and "ملاحظة من سمير", which
+Gemini writes from these numbers (cached until a new session completes; rule-based fallback).
+
+Until the family completes its first session, it shows a clearly-labelled demo family.
+
+- `POST /api/suggestion` — a new suggested question ("استكشف سؤالًا آخر").
+- `POST /api/suggestion/queue` — "ابدأ جلسة": the next tap on the device asks this question.
 
 ### `GET /stats`
 
