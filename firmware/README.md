@@ -7,7 +7,10 @@ firmware (CoreS3, ESP-IDF v5.5.4). The rest of the firmware stays as it is.
 
 It works like a voice call:
 
-1. Tap the screen or pat the head. The server picks the topic and returns a short-lived Gemini Live
+1. Tap the screen and choose **Family** (the family talks together) or **Just me** (a one-to-one
+   chat: Hiwar asks who is there, then chats, helps with learning, plays games or reflects on the
+   day). Patting the head starts a family conversation straight away.
+   The server picks the topic and returns a short-lived Gemini Live
    token for this one conversation (`/live/start`). The API key never leaves the server.
 2. The robot opens a WebSocket straight to Gemini Live. It streams the microphone (16 kHz PCM) and
    plays Hiwar's voice (24 kHz PCM) the moment it arrives, so replies start within about a second.

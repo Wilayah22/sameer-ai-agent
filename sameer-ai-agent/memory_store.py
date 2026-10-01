@@ -76,6 +76,9 @@ def load_memory():
     for key in ("members", "ages"):
         if not isinstance(memory["family"].get(key), list):
             memory["family"][key] = []
+    # One-to-one conversations with a single family member, kept apart from family sessions.
+    if not isinstance(memory.get("personal_sessions"), list):
+        memory["personal_sessions"] = []
 
     return memory
 
@@ -135,6 +138,27 @@ def effective_rating(session):
 
 def find_session(memory, session_id):
     return next((s for s in memory["sessions"] if s.get("id") == session_id), None)
+
+
+# General subjects of a personal conversation: the dashboard shows these, never what was said.
+PERSONAL_TOPICS = (
+    "المدرسة",
+    "الأصدقاء",
+    "الهوايات",
+    "الرياضة",
+    "المشاعر",
+    "التعلّم",
+    "القصص والألعاب",
+    "الأحلام والأهداف",
+    "العائلة",
+    "يومي",
+    "أخرى",
+)
+GUEST = "ضيف"
+
+
+def find_personal_session(memory, session_id):
+    return next((s for s in memory.get("personal_sessions", []) if s.get("id") == session_id), None)
 
 
 def new_session(category, question, now):

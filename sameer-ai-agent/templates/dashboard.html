@@ -140,7 +140,7 @@
         </div>
         <p class="live-q" data-live-q></p>
         <div class="live-stats">
-          <span><b class="num" data-live-turns>0</b> مرات تحدثت فيها العائلة</span>
+          <span><b class="num" data-live-turns>0</b> <span data-live-turns-label>مرات تحدثت فيها العائلة</span></span>
           <span><b class="num" data-live-replies>0</b> ردود من حوار</span>
           <span class="muted">تُحدَّث اللوحة تلقائيًا عند انتهاء الجلسة</span>
         </div>
@@ -216,11 +216,19 @@
         <div class="chips" data-filters hidden></div>
         <div class="sessions" data-sessions></div>
       </section>
+
+      <section class="card c12" id="personal" aria-labelledby="personal-h">
+        <div class="card-head">
+          <div><h2 id="personal-h">الحوارات الشخصية</h2><p data-personal-sub>حوارات كل فرد مع حوار وحده، آخر 30 يومًا</p></div>
+          <span class="chip"><svg class="i" style="width:14px;height:14px"><use href="#i-shield"/></svg>المواضيع العامة فقط، بلا تفاصيل</span>
+        </div>
+        <div class="personal" data-personal></div>
+      </section>
     </div>
 
     <footer class="privacy" role="contentinfo">
       <span class="p-main"><svg class="i"><use href="#i-shield"/></svg><b>الخصوصية أولًا</b><span>لا توجد كاميرا • لا يوجد تسجيل صوتي دائم</span></span>
-      <span>تُحفظ ملخصات الجلسات فقط: الفئة، والسؤال، والمدة، والتقييم.</span>
+      <span>تُحفظ ملخصات الجلسات فقط: الفئة، والسؤال، والمدة، والتقييم. ومن الحوارات الشخصية: المدة والموضوع العام فقط.</span>
     </footer>
   </main>
 </div>

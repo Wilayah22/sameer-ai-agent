@@ -12,11 +12,14 @@ import gemini_client
 from dashboard_data import build_dashboard, demo_memory, rule_based_insight
 from memory_store import (
     CATEGORIES,
+    GUEST,
     MEMORY_LOCK,
+    PERSONAL_TOPICS,
     build_session,
     choose_category,
     compute_personalization_stats,
     family_ages,
+    find_personal_session,
     find_session,
     last_evaluation_tip,
     load_memory,
@@ -220,6 +223,8 @@ def live_start():
     if not device_authorized():
         return jsonify({"error": "Invalid device token."}), 401
     payload = json_body()
+    if payload.get("mode") == "personal":
+        return start_personal_live()
     ages = parse_ages(payload.get("ages"))
     occasion = str(payload.get("occasion") or "").strip()[:60] or None
     now = datetime.now(TIMEZONE)
@@ -260,7 +265,47 @@ def live_start():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
-    return jsonify({"session_id": session["id"], "category": category, **live})
+    return jsonify({"session_id": session["id"], "category": category, "mode": "family", **live})
+
+
+def start_personal_live():
+    """A one-to-one conversation: Hiwar asks who is there, then chats, teaches, plays or reflects.
+
+    Stored apart from family sessions (it doesn't change the family bond index). The dashboard
+    shows who talked, for how long, and the general subjects only.
+    """
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    members = memory["family"]["members"]
+    roles = [m["role"] for m in members] + [GUEST]
+    tools = gemini_client.live_tools("personal", roles, PERSONAL_TOPICS)
+    instruction = gemini_client.personal_instruction(members, PERSONAL_TOPICS, GUEST)
+    try:
+        live = gemini_client.start_live(instruction, tools)
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Personal live conversation unavailable: %s", error)
+        return jsonify({"error": str(error)}), 503
+
+    session = {
+        "id": new_session("", "", now)["id"],
+        "mode": "personal",
+        "started_at": now.isoformat(timespec="seconds"),
+        "member": None,
+        "topics": [],
+    }
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            memory["personal_sessions"].append(session)
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify({"session_id": session["id"], "mode": "personal", **live})
 
 
 @app.post("/live/heartbeat")
@@ -277,10 +322,19 @@ def live_heartbeat():
     try:
         with MEMORY_LOCK:
             memory = load_memory()
-            session = find_session(memory, session_id)
+            session = find_session(memory, session_id) or find_personal_session(memory, session_id)
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
             session["last_activity"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
+            if session.get("mode") == "personal":
+                roles = {m["role"] for m in memory["family"]["members"]} | {GUEST}
+                if payload.get("member") in roles:
+                    session["member"] = payload["member"]
+                topics = payload.get("topics")
+                if isinstance(topics, list):
+                    for topic in topics:
+                        if topic in PERSONAL_TOPICS and topic not in session["topics"]:
+                            session["topics"].append(topic)
             for key in ("turns", "replies"):
                 value = payload.get(key)
                 if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 10_000:
@@ -498,6 +552,13 @@ def evaluate_session():
     try:
         with MEMORY_LOCK:
             memory = load_memory()
+            personal = find_personal_session(memory, session_id)
+            if personal is not None:
+                # Personal conversations aren't scored: only their length is kept.
+                personal["duration_seconds"] = round(duration)
+                personal["ended"] = True
+                save_memory(memory)
+                return jsonify({"status": "saved", "duration_seconds": round(duration)})
             session = find_session(memory, session_id)
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
@@ -567,7 +628,7 @@ def dashboard_data():
 
     data = build_dashboard(memory, now, TIMEZONE)
     # Real data as soon as the family has started any session; the demo family only before that.
-    demo = not data["recent_sessions"]
+    demo = not data["recent_sessions"] and not data["personal"]["sessions"]
     if demo:
         data = build_dashboard(demo_memory(now), now, TIMEZONE)
         insight, source = rule_based_insight(data["facts"]), "demo"
@@ -598,9 +659,10 @@ def live_session():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
-    for session in reversed(memory["sessions"]):
-        if "rating" in session or "evaluation" in session:
-            continue
+    candidates = [s for s in memory["sessions"] if "rating" not in s and "evaluation" not in s]
+    candidates += [s for s in memory["personal_sessions"] if not s.get("ended")]
+    candidates.sort(key=lambda s: s.get("last_activity") or s.get("started_at") or "")
+    for session in reversed(candidates):
         stamp = session.get("last_activity") or session.get("started_at")
         if not stamp:
             continue
@@ -613,9 +675,24 @@ def live_session():
         started = started if started.tzinfo else started.replace(tzinfo=TIMEZONE)
         if (now - last).total_seconds() > LIVE_WINDOW_SECONDS:
             continue
+        if session.get("mode") == "personal":
+            return jsonify(
+                {
+                    "live": True,
+                    "mode": "personal",
+                    "session_id": session.get("id"),
+                    "member": session.get("member"),
+                    "topics": session.get("topics", []),
+                    "started_at": session.get("started_at"),
+                    "elapsed_seconds": max(0, int((now - started).total_seconds())),
+                    "turns": session.get("turns", 0),
+                    "replies": session.get("replies", 0),
+                }
+            )
         return jsonify(
             {
                 "live": True,
+                "mode": "family",
                 "session_id": session.get("id"),
                 "category": session.get("category"),
                 "question": session.get("topic"),

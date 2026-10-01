@@ -315,6 +315,9 @@ LIVE_TOKEN_MINUTES = 35  # a conversation can run 30 minutes
 LIVE_TOKEN_USES = 6  # the first connection plus reconnections (Gemini closes a connection every ~10 minutes)
 LIVE_SILENCE_MS = 800  # how long a pause ends someone's turn
 END_TOOL = "end_conversation"
+MEMBER_TOOL = "set_member"
+TOPIC_TOOL = "note_topic"
+END_DESCRIPTION = "أنهِ الجلسة بعد أن تودّع العائلة."
 
 
 def live_instruction(category, ages, avoid_topics, tip=None, opening_question=None, family_name=None):
@@ -351,7 +354,82 @@ def live_instruction(category, ages, avoid_topics, tip=None, opening_question=No
     return "\n\n".join(lines)
 
 
-def _live_config(instruction):
+def personal_instruction(members, topics, guest):
+    """System instruction for a one-to-one live conversation with a single family member."""
+    roster = "، ".join(
+        f"{m['role']} (عمره {m['age']})" if m.get("age") else m["role"] for m in members
+    ) or "لم تُسجَّل أسماء بعد"
+    return "\n\n".join(
+        [
+            f"""أنت "{ROBOT_NAME}"، رفيق صوتي ودود في محادثة خاصة مع فرد واحد من العائلة.
+
+البداية:
+- رحّب بجملة قصيرة واسأل بلطف: مين معي؟ أفراد العائلة: {roster}.
+- عندما تعرف من يتحدث، استدعِ الأداة {MEMBER_TOOL} بدوره كما هو مكتوب في القائمة، أو "{guest}" إن لم يكن منهم.
+- تكيّف مع عمره: مع الأطفال بسيط ومرح ومشجّع، ومع الكبار صديق هادئ ومحترم.
+
+ما تستطيع فعله (اتبع ما يريده هو):
+- الدردشة والاستماع: اسأل عن يومه واهتماماته ومشاعره، واستمع أكثر مما تتكلم.
+- المساعدة في التعلّم: اشرح ببساطة وبأمثلة، واسأله ليفكر بنفسه، ولا تحل الواجب عنه كاملًا.
+- القصص والألعاب الصوتية: قصص تفاعلية يختار فيها ما يحدث، وألغاز، وألعاب كلمات.
+- التأمل اليومي: أجمل ما حدث اليوم، شيء ممتن له، هدف صغير للغد.
+
+قواعد الحوار:
+- كل رد جملة أو جملتان فقط، لأنك تتكلم بصوت مسموع؛ والقصص مقاطع قصيرة يتخللها سؤال.
+- كلما اتضح موضوع الحديث أو تغيّر، استدعِ الأداة {TOPIC_TOOL} بأقرب موضوع من: {"، ".join(topics)}.
+- عربية بسيطة دافئة؛ جارِ لهجته.
+- إذا ذكر طفل أنه يتعرض للأذى أو التنمر أو أنه حزين جدًا أو خائف: طمئنه بلطف، وشجّعه أن يخبر أحد والديه أو شخصًا كبيرًا يثق به. لا تعده بإخفاء ما يخص سلامته.
+- لا تطلب معلومات شخصية (عنوان، مدرسة، أرقام، كلمات مرور).
+- إذا ودّعك أو قال إنه انتهى، فودّعه بجملة قصيرة ثم استدعِ الأداة {END_TOOL}.
+- الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست منه: نفّذها بصوتك دون أن تذكرها.""",
+            SAFETY_RULES,
+        ]
+    )
+
+
+def live_tools(mode, members=(), topics=()):
+    """Function declarations (wire format) for a live conversation."""
+    tools = [{"name": END_TOOL, "description": END_DESCRIPTION}]
+    if mode == "personal":
+        tools.append(
+            {
+                "name": MEMBER_TOOL,
+                "description": "سجّل من الذي يتحدث معك من أفراد العائلة.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"role": {"type": "STRING", "enum": list(members)}},
+                    "required": ["role"],
+                },
+            }
+        )
+        tools.append(
+            {
+                "name": TOPIC_TOOL,
+                "description": "سجّل الموضوع العام للحديث الحالي (بلا تفاصيل).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"topic": {"type": "STRING", "enum": list(topics)}},
+                    "required": ["topic"],
+                },
+            }
+        )
+    return tools
+
+
+def _sdk_schema(schema):
+    if not schema:
+        return None
+    return types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            name: types.Schema(type=types.Type.STRING, enum=prop.get("enum"))
+            for name, prop in schema["properties"].items()
+        },
+        required=schema.get("required"),
+    )
+
+
+def _live_config(instruction, tools):
     return types.LiveConnectConfig(
         response_modalities=[types.Modality.AUDIO],
         system_instruction=instruction,
@@ -362,8 +440,9 @@ def _live_config(instruction):
             types.Tool(
                 function_declarations=[
                     types.FunctionDeclaration(
-                        name=END_TOOL, description="أنهِ الجلسة بعد أن تودّع العائلة."
+                        name=t["name"], description=t["description"], parameters=_sdk_schema(t.get("parameters"))
                     )
+                    for t in tools
                 ]
             )
         ],
@@ -374,7 +453,7 @@ def _live_config(instruction):
     )
 
 
-def live_setup(instruction):
+def live_setup(instruction, tools):
     """The setup message the device sends first on the WebSocket (camelCase, as on the wire)."""
     return {
         "setup": {
@@ -384,9 +463,7 @@ def live_setup(instruction):
                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": LIVE_VOICE}}},
             },
             "systemInstruction": {"parts": [{"text": instruction}]},
-            "tools": [
-                {"functionDeclarations": [{"name": END_TOOL, "description": "أنهِ الجلسة بعد أن تودّع العائلة."}]}
-            ],
+            "tools": [{"functionDeclarations": tools}],
             "outputAudioTranscription": {},
             "realtimeInputConfig": {"automaticActivityDetection": {"silenceDurationMs": LIVE_SILENCE_MS}},
             "sessionResumption": {},
@@ -394,12 +471,13 @@ def live_setup(instruction):
     }
 
 
-def start_live(instruction):
+def start_live(instruction, tools=None):
     """Create a short-lived Gemini token for one conversation, locked to this instruction.
 
     The device never sees the API key: the token works only for this Live setup, a few connections,
     and LIVE_TOKEN_MINUTES. Returns {"ws_url", "token", "setup"}.
     """
+    tools = tools or live_tools("family")
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise GeminiUnavailable("GEMINI_API_KEY is not configured.")
@@ -414,7 +492,7 @@ def start_live(instruction):
                 expire_time=expires,
                 new_session_expire_time=expires,
                 live_connect_constraints=types.LiveConnectConstraints(
-                    model=LIVE_MODEL, config=_live_config(instruction)
+                    model=LIVE_MODEL, config=_live_config(instruction, tools)
                 ),
                 # Lock the fields set above; the device may still add a session-resumption handle.
                 lock_additional_fields=[],
@@ -427,7 +505,7 @@ def start_live(instruction):
     return {
         "ws_url": f"{LIVE_WS_URL}?access_token={quote(token.name, safe='')}",
         "token": token.name,
-        "setup": live_setup(instruction),
+        "setup": live_setup(instruction, tools),
     }
 
 

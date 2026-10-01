@@ -57,8 +57,13 @@ constexpr int PitchFacingFamily = 150;
 constexpr int PitchThinking     = 380;
 constexpr int PitchNodTop       = 260;
 
+constexpr int ModePanelMs = 10000;  // the mode buttons hide again after this long
+
 // Same words as the server's wrap-up, used when the family ends the session from the screen.
 constexpr const char* WrapUpText = "كانت جلسة جميلة! شكرًا لكم، ونلتقي في حوار قادم.";
+
+std::unique_ptr<Container> _mode_panel;
+std::vector<std::unique_ptr<Button>> _mode_buttons;
 
 std::string server_url(const std::string& path)
 {
@@ -186,7 +191,7 @@ void AppSameer::onOpen()
     // Patting the head starts a session too.
     GetHAL().onHeadPetGesture.connect([this](HeadPetGesture gesture) {
         if (gesture == HeadPetGesture::Press) {
-            on_screen_tap();
+            on_head_pat();
         }
     });
 
@@ -220,6 +225,7 @@ void AppSameer::onClose()
     mclog::tagInfo(_tag, "on close");
     {
         LvglLockGuard lock;
+        show_mode_panel(false);
         GetHAL().onHeadPetGesture.clear();
         GetStackChan().clearModifiers();
         GetStackChan().resetAvatar();
@@ -240,7 +246,14 @@ void AppSameer::on_screen_tap()
 {
     switch (_state.load()) {
         case State::Idle:
-            _start_requested = true;
+            // Show the two modes; the choice starts the session.
+            _state          = State::Choosing;
+            _panel_shown_at = GetHAL().millis();
+            post_ui([this]() { show_mode_panel(true); });
+            break;
+        case State::Choosing:
+            _state = State::Idle;  // tapping the face again closes the choice
+            post_ui([this]() { show_mode_panel(false); });
             break;
         case State::Listening:
             _end_requested = true;  // the family can end the session early
@@ -255,6 +268,66 @@ void AppSameer::on_screen_tap()
             break;
         default:
             break;
+    }
+}
+
+// Patting the head is the quick way to start a family conversation.
+void AppSameer::on_head_pat()
+{
+    State state = _state.load();
+    if (state == State::Idle || state == State::Choosing) {
+        choose_mode(false);
+    } else {
+        on_screen_tap();
+    }
+}
+
+void AppSameer::choose_mode(bool personal)
+{
+    _personal        = personal;
+    _state           = State::Busy;
+    _start_requested = true;
+    post_ui([this]() { show_mode_panel(false); });  // not inside the button's own click handler
+}
+
+// Must be called with the LVGL lock held.
+void AppSameer::show_mode_panel(bool show)
+{
+    _mode_buttons.clear();
+    _mode_panel.reset();
+    if (!show) {
+        return;
+    }
+
+    _mode_panel = std::make_unique<Container>(lv_screen_active());
+    _mode_panel->setSize(300, 84);
+    _mode_panel->align(LV_ALIGN_BOTTOM_MID, 0, -8);
+    _mode_panel->setBgOpa(0);
+    _mode_panel->setBorderWidth(0);
+    _mode_panel->setPaddingAll(0);
+
+    struct Choice {
+        const char* label;
+        uint32_t color;
+        bool personal;
+    };
+    const Choice choices[] = {{LV_SYMBOL_HOME " Family", ThemeColor, false}, {"Just me", 0xF1E2A8, true}};
+    for (int i = 0; i < 2; ++i) {
+        auto button = std::make_unique<Button>(_mode_panel->get());
+        button->setSize(140, 72);
+        button->align(i == 0 ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+        button->setBgColor(lv_color_hex(choices[i].color));
+        button->setRadius(18);
+        button->label().setText(choices[i].label);
+        button->label().setTextFont(&lv_font_montserrat_24);
+        button->label().setTextColor(lv_color_hex(ThemeDark));
+        bool personal = choices[i].personal;
+        button->onClick().connect([this, personal]() {
+            if (_state == State::Choosing) {
+                choose_mode(personal);
+            }
+        });
+        _mode_buttons.push_back(std::move(button));
     }
 }
 
@@ -274,6 +347,9 @@ void AppSameer::session_task(void* arg)
             app->_end_requested       = false;
             app->_interrupt_requested = false;
             last_ping = xTaskGetTickCount();
+        } else if (app->_state == State::Choosing && GetHAL().millis() - app->_panel_shown_at >= ModePanelMs) {
+            app->_state = State::Idle;
+            app->post_ui([app]() { app->show_mode_panel(false); });
         } else if (xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(KeepAliveMs)) {
             ping_server();
             last_ping = xTaskGetTickCount();
@@ -408,11 +484,20 @@ void AppSameer::run_session()
         GetStackChan().motion().moveWithSpeed(0, PitchThinking, 300);  // look up, thinking
     });
 
-    if (!run_live_session()) {
-        mclog::tagWarn(_tag, "live conversation unavailable, using turn-by-turn mode");
-        _state = State::Busy;
-        run_classic_session();
+    bool personal = _personal;
+    if (run_live_session(personal)) {
+        return;
     }
+    _state = State::Busy;
+    if (personal) {
+        // The one-to-one chat needs Live; there is no turn-by-turn version of it.
+        mclog::tagWarn(_tag, "personal conversation unavailable");
+        post_ui([]() { GetStackChan().addModifier(std::make_unique<TimedEmotionModifier>(avatar::Emotion::Sad, 3000)); });
+        speak("عذرًا، لا أستطيع بدء الحوار الشخصي الآن. جرّب بعد قليل.");
+        return;
+    }
+    mclog::tagWarn(_tag, "live conversation unavailable, using turn-by-turn mode");
+    run_classic_session();
 }
 
 // A happy little nod as thanks, at the end of every session.
@@ -653,9 +738,9 @@ constexpr int HeartbeatMs        = 8000;
 constexpr int MaxLiveMs          = 30 * 60 * 1000;
 constexpr int MaxReconnects      = 4;      // Gemini closes a connection every ~10 minutes
 
-constexpr const char* OpenNudge    = "[تنبيه] العائلة جاهزة الآن. ابدأ.";
-constexpr const char* SilenceNudge = "[تنبيه] صمتت العائلة قليلًا. اطرح سؤالًا خفيفًا جديدًا أو ادعُ أحدهم للمشاركة.";
-constexpr const char* GoodbyeNudge = "[تنبيه] انتهى وقت الجلسة. ودّع العائلة بجملة قصيرة واشكرهم.";
+constexpr const char* OpenNudge    = "[تنبيه] ابدأ الآن.";
+constexpr const char* SilenceNudge = "[تنبيه] طال الصمت قليلًا. اقترح شيئًا خفيفًا جديدًا، أو ادعُ من لم يتكلم للمشاركة.";
+constexpr const char* GoodbyeNudge = "[تنبيه] انتهى وقت الجلسة. ودّع بجملة قصيرة واشكر.";
 
 std::string base64_encode(const void* data, size_t len)
 {
@@ -717,6 +802,8 @@ struct LiveCall {
     std::string resume_handle;                  // (m) lets a dropped connection continue the conversation
     std::string transcript;                     // (m) Hiwar's words in the current turn
     std::string opening_question;               // (m) Hiwar's first turn, for the dashboard
+    std::string member;                         // (m) personal mode: who Hiwar is talking with
+    std::vector<std::string> topics;            // (m) personal mode: general subjects, no details
 
     std::atomic<bool> setup_done{false};
     std::atomic<bool> connected{false};
@@ -808,8 +895,22 @@ struct LiveCall {
         {
             std::string name = json_string(call, "name");
             std::string id   = json_string(call, "id");
+            cJSON* args = cJSON_GetObjectItemCaseSensitive(call, "args");
             if (name == "end_conversation") {
                 model_ended = true;
+            } else if (name == "set_member") {
+                std::string role = json_string(args, "role");
+                std::lock_guard<std::mutex> lock(mutex);
+                if (!role.empty()) {
+                    member = role;
+                }
+            } else if (name == "note_topic") {
+                std::string topic = json_string(args, "topic");
+                std::lock_guard<std::mutex> lock(mutex);
+                if (!topic.empty() && std::find(topics.begin(), topics.end(), topic) == topics.end() &&
+                    topics.size() < 12) {
+                    topics.push_back(topic);
+                }
             }
             cJSON* reply     = cJSON_CreateObject();
             cJSON* responses = cJSON_AddArrayToObject(cJSON_AddObjectToObject(reply, "toolResponse"), "functionResponses");
@@ -901,11 +1002,12 @@ void heartbeat_task(void* arg)
 
 }  // namespace
 
-bool AppSameer::run_live_session()
+bool AppSameer::run_live_session(bool personal)
 {
     // 1. The server picks the topic and hands out a short-lived Gemini token for this conversation.
     std::string response;
-    if (post_json("/live/start", "{}", response, IntroTimeoutMs) != 200) {
+    if (post_json("/live/start", personal ? R"({"mode":"personal"})" : R"({"mode":"family"})", response,
+                  IntroTimeoutMs) != 200) {
         return false;
     }
     cJSON* started = cJSON_Parse(response.c_str());
@@ -1030,9 +1132,18 @@ bool AppSameer::run_live_session()
         cJSON_AddNumberToObject(body, "replies", call.replies.load());
         {
             std::lock_guard<std::mutex> lock(call.mutex);
-            if (!question_sent && !call.opening_question.empty()) {
+            if (!personal && !question_sent && !call.opening_question.empty()) {
                 cJSON_AddStringToObject(body, "question", call.opening_question.c_str());
                 question_sent = true;
+            }
+            if (personal) {
+                if (!call.member.empty()) {
+                    cJSON_AddStringToObject(body, "member", call.member.c_str());
+                }
+                cJSON* list = cJSON_AddArrayToObject(body, "topics");
+                for (auto& topic : call.topics) {
+                    cJSON_AddItemToArray(list, cJSON_CreateString(topic.c_str()));
+                }
             }
         }
         if (wait) {

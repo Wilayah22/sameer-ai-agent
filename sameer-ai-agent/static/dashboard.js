@@ -270,6 +270,42 @@
     }
   }
 
+  /* ---------- الحوارات الشخصية ---------- */
+  function countText(n) { return n === 1 ? 'حوار واحد' : n === 2 ? 'حواران' : n + ' حوارات'; }
+  function daysAgoText(n) {
+    if (n === 0) return 'آخرها اليوم';
+    if (n === 1) return 'آخرها أمس';
+    if (n === 2) return 'آخرها قبل يومين';
+    return 'آخرها قبل ' + n + (n <= 10 ? ' أيام' : ' يومًا');
+  }
+  function renderPersonal(p) {
+    var box = $('[data-personal]');
+    box.textContent = '';
+    $('[data-personal-sub]').textContent = p.sessions
+      ? countText(p.sessions) + ' • ' + minutesText(p.minutes) + ' • آخر 30 يومًا'
+      : 'حوارات كل فرد مع حوار وحده، آخر 30 يومًا';
+    if (!p.members.length) {
+      box.appendChild(h('p', { class: 'empty', text: 'لا حوارات شخصية بعد. اختاروا «حوار شخصي» على شاشة الروبوت ليتحدث أحدكم مع حوار وحده.' }));
+      return;
+    }
+    p.members.forEach(function (m, i) {
+      var c = AVATAR_COLORS[i % AVATAR_COLORS.length];
+      var av = h('span', { class: 'avatar', 'aria-hidden': 'true' }, [icon('i-person')]);
+      av.style.background = c[0]; av.style.color = c[1];
+      var topics = h('div', { class: 'p-topics' });
+      m.topics.forEach(function (t) { topics.appendChild(h('span', { class: 'chip', text: t })); });
+      box.appendChild(h('div', { class: 'p-card' }, [
+        av, h('b', { text: m.role }),
+        h('div', { class: 'p-meta' }, [
+          h('span', { text: countText(m.sessions) }),
+          h('span', { text: minutesText(m.minutes) }),
+          h('span', { text: daysAgoText(m.last_days_ago) })
+        ]),
+        topics
+      ]));
+    });
+  }
+
   /* ---------- الجلسات ---------- */
   function renderSessions() {
     var box = $('[data-sessions]');
@@ -398,6 +434,7 @@
     renderTopics(d.topics);
     renderPeople(d.participation);
     renderSessions();
+    renderPersonal(d.personal);
     renderInsight();
   }
   function load() {
@@ -433,11 +470,15 @@
     live.id = s.session_id;
     live.startedMs = Date.now() - s.elapsed_seconds * 1000;
     card.hidden = false;
+    var personal = s.mode === 'personal';
     var cat = $('[data-live-cat]');
     cat.textContent = '';
-    cat.appendChild(icon(CAT_ICONS[s.category] || 'i-chat', 14));
-    cat.appendChild(doc.createTextNode(s.category || ''));
-    $('[data-live-q]').textContent = s.question || '';
+    cat.appendChild(icon(personal ? 'i-person' : CAT_ICONS[s.category] || 'i-chat', 14));
+    cat.appendChild(doc.createTextNode(personal ? 'حوار شخصي' + (s.member ? ' • ' + s.member : '') : s.category || ''));
+    $('[data-live-q]').textContent = personal
+      ? (s.topics && s.topics.length ? 'يتحدثان عن: ' + s.topics.join('، ') : 'محادثة خاصة، لا يُعرض محتواها')
+      : s.question || '';
+    $('[data-live-turns-label]').textContent = personal ? 'مرات تحدّث فيها' : 'مرات تحدثت فيها العائلة';
     $('[data-live-turns]').textContent = s.turns;
     $('[data-live-replies]').textContent = s.replies;
     tickTimer();
