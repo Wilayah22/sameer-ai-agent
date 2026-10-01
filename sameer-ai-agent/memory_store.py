@@ -4,6 +4,7 @@ No audio and no conversation transcripts are ever stored here.
 """
 
 import json
+import os
 import random
 import uuid
 from collections import defaultdict
@@ -12,6 +13,30 @@ from threading import Lock
 
 MEMORY_PATH = Path(__file__).with_name("memory.json")
 MEMORY_LOCK = Lock()
+
+# On hosts with an ephemeral disk (Render's free tier wipes files on every deploy), set
+# DATABASE_URL to a Postgres database and the same JSON document is kept there instead.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+EMPTY_MEMORY = {"sessions": [], "family": {"name": "", "members": [], "ages": []}}
+
+
+def _db_connect():
+    import psycopg
+
+    conn = psycopg.connect(DATABASE_URL, connect_timeout=10, autocommit=True)
+    conn.execute("CREATE TABLE IF NOT EXISTS sameer_memory (id INTEGER PRIMARY KEY, data JSONB NOT NULL)")
+    return conn
+
+
+def _read_raw():
+    if DATABASE_URL:
+        with _db_connect() as conn:
+            row = conn.execute("SELECT data FROM sameer_memory WHERE id = 1").fetchone()
+        return json.loads(json.dumps(EMPTY_MEMORY)) if row is None else row[0]
+    if not MEMORY_PATH.exists():
+        save_memory(json.loads(json.dumps(EMPTY_MEMORY)))
+    with MEMORY_PATH.open("r", encoding="utf-8") as memory_file:
+        return json.load(memory_file)
 
 CATEGORIES = ("الذكريات", "الامتنان", "الأحلام", "الحكايات", "القيم")
 
@@ -42,11 +67,7 @@ OCCASION_BOOSTS = {
 
 
 def load_memory():
-    if not MEMORY_PATH.exists():
-        save_memory({"sessions": [], "family": {"name": "", "members": [], "ages": []}})
-
-    with MEMORY_PATH.open("r", encoding="utf-8") as memory_file:
-        memory = json.load(memory_file)
+    memory = _read_raw()
 
     if not isinstance(memory, dict) or not isinstance(memory.get("sessions"), list):
         raise ValueError('memory.json must contain a "sessions" list.')
@@ -60,6 +81,16 @@ def load_memory():
 
 
 def save_memory(memory):
+    if DATABASE_URL:
+        from psycopg.types.json import Jsonb
+
+        with _db_connect() as conn:
+            conn.execute(
+                "INSERT INTO sameer_memory (id, data) VALUES (1, %s) "
+                "ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data",
+                (Jsonb(memory),),
+            )
+        return
     with MEMORY_PATH.open("w", encoding="utf-8") as memory_file:
         json.dump(memory, memory_file, ensure_ascii=False, indent=2)
         memory_file.write("\n")

@@ -1,7 +1,7 @@
 # sameer-ai-agent
 
-خادم Flask لروبوت "سمير" للحوار العائلي. الجهاز (ESP32-S3 / M5Stack) يرسل طلبات HTTP،
-والخادم يختار فئة الجلسة، ويولّد السؤال بـ Google Gemini، ويقرر متى يتدخل سمير،
+خادم Flask لروبوت "حوار" للحوار العائلي. الجهاز (ESP32-S3 / M5Stack) يرسل طلبات HTTP،
+والخادم يختار فئة الجلسة، ويولّد السؤال بـ Google Gemini، ويقرر متى يتدخل حوار،
 ويحفظ ملخصًا نصيًا لكل جلسة تقرؤه لوحة "مؤشر الرابطة الأسرية".
 
 ## Run
@@ -21,7 +21,8 @@ The app listens on `$PORT` (default `8080`).
 | `GEMINI_FALLBACK_MODELS` | `gemini-flash-lite-latest,gemini-flash-latest` | Tried in order when `GEMINI_MODEL` is busy (503/429) after one retry. |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Gemini text-to-speech model for `/tts`. |
 | `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` and `/converse` require it in `X-Device-Token`. |
-| `ROBOT_NAME` | `سمير` | The name the robot uses in every prompt, e.g. `حوار`. |
+| `ROBOT_NAME` | `حوار` | The name the robot uses in every prompt. |
+| `DATABASE_URL` | — | Optional Postgres URL (e.g. a free Neon database). Without it sessions live in `memory.json`, which Render's free disk wipes on every deploy. |
 | `SAMEER_TZ` | `Asia/Riyadh` | Time zone for time-of-day category choice. |
 
 ## Session flow (device)
@@ -96,7 +97,7 @@ Members under 18 give Gemini the children's ages. Editable from the dashboard se
 The dashboard reads `GET /api/dashboard`: the family bond index (same formula as before:
 sessions up to 20 → 40 pts, average rating of 3 → 45, categories of 5 → 15, over the last
 30 days) with its 30-day trend, KPIs compared with the previous 30 days, engagement per
-category, participation per family member, recent sessions, and "ملاحظة من سمير", which
+category, participation per family member, recent sessions, and "ملاحظة من حوار", which
 Gemini writes from these numbers (cached until a new session completes; rule-based fallback).
 
 Until the family completes its first session, it shows a clearly-labelled demo family.
@@ -122,6 +123,18 @@ the session's question and the earlier turns and decides:
 
 `X-Reply` carries the reply text, URL-encoded. If Gemini is unavailable the answer is `listen`.
 
+### `GET /api/live`
+
+The session happening right now (the newest unrated session with activity in the last 3 minutes):
+`{"live": true, "session_id", "category", "question", "elapsed_seconds", "turns", "replies"}`,
+or `{"live": false}`. The dashboard polls it every 4 s, shows a "جلسة جارية الآن" card, and
+refreshes all its numbers as soon as the session is rated or evaluated.
+
+### `GET /ping`
+
+`{"ok": true}`. The robot calls it when its app opens and every 10 minutes, so a sleeping free
+Render instance is awake before the family taps.
+
 ### `GET /stats`
 
 `total_sessions`, `average_rating_overall`, `average_rating_per_category`, `recent_topics`,
@@ -133,5 +146,5 @@ Spoken turns sent to `/converse` are understood in memory and never written to d
 summary of each turn is kept in server memory so the robot can follow the conversation, and is
 deleted when the session is evaluated or rated (or after an hour).
 
-`memory.json` stores, per session: category, Sameer's own question and follow-ups, rating,
+`memory.json` (or the `DATABASE_URL` database) stores, per session: category, Sameer's own question and follow-ups, rating,
 and evaluation numbers. It never stores audio or what the family said.

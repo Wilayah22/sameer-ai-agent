@@ -10,7 +10,7 @@ from threading import Lock
 from google import genai
 from google.genai import errors, types
 
-ROBOT_NAME = os.environ.get("ROBOT_NAME", "سمير").strip() or "سمير"
+ROBOT_NAME = os.environ.get("ROBOT_NAME", "حوار").strip() or "حوار"
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
 TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Puck")
@@ -77,15 +77,21 @@ def _get_client():
         return _client
 
 
-def _generate(contents, system_instruction=SYSTEM_INSTRUCTION, json_schema=None, budget_seconds=TEXT_BUDGET_SECONDS):
-    """Generate text (or JSON), retrying a busy model once and then trying the fallback models."""
-    config = types.GenerateContentConfig(
+def _config(system_instruction, json_schema, thinking):
+    return types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.9,
         http_options=types.HttpOptions(timeout=TEXT_TIMEOUT_MS),
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
+        # Short spoken replies don't need deep reasoning; minimal thinking cuts seconds off each turn.
+        **({"thinking_config": types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)} if thinking else {}),
     )
+
+
+def _generate(contents, system_instruction=SYSTEM_INSTRUCTION, json_schema=None, budget_seconds=TEXT_BUDGET_SECONDS):
+    """Generate text (or JSON), retrying a busy model once and then trying the fallback models."""
+    config = _config(system_instruction, json_schema, thinking=True)
     attempts = [MODEL, MODEL] + [m for m in FALLBACK_MODELS if m != MODEL]
     deadline = time.monotonic() + budget_seconds
     errors_seen = []
@@ -102,6 +108,20 @@ def _generate(contents, system_instruction=SYSTEM_INSTRUCTION, json_schema=None,
             response = _get_client().models.generate_content(model=model, contents=contents, config=config)
         except errors.APIError as error:
             errors_seen.append(f"{model}: {error.code} {error.message}")
+            if error.code == 400 and "think" in str(error.message).lower() and config.thinking_config:
+                # This model doesn't take a thinking level: retry it without one.
+                config = _config(system_instruction, json_schema, thinking=False)
+                try:
+                    response = _get_client().models.generate_content(model=model, contents=contents, config=config)
+                except errors.APIError as retry_error:
+                    errors_seen.append(f"{model} (no thinking): {retry_error.code} {retry_error.message}")
+                    continue
+                text = (response.text or "").strip()
+                if not json_schema:
+                    text = text.strip('"«»“”').strip()
+                if text:
+                    return text
+                continue
             if error.code == 404:
                 missing.add(model)
             if error.code in RETRYABLE_CODES or error.code == 404:
@@ -156,7 +176,7 @@ CONVERSE_INSTRUCTION = f"""\
 
 قرر واحدًا من ثلاثة:
 - "reply": إذا وُجّه الكلام إليك (نادوك باسمك، أو سألوك، أو طلبوا رأيك)، أو إذا أجاب أحدهم عن سؤالك
-  وكان تعليق قصير منك سيشجع الآخرين على المشاركة. رُد بجملة أو جملتين لا تزيد عن 30 كلمة،
+  وكان تعليق قصير منك سيشجع الآخرين على المشاركة. رُد بجملة أو جملتين قصيرتين لا تزيد عن 20 كلمة،
   بدفء وببساطة، وغالبًا اختم بدعوة فرد آخر للمشاركة أو بسؤال متابعة قريب من كلامهم.
 - "listen": إذا كانت العائلة تتحدث فيما بينها والحوار ماشٍ، أو إذا كان المقطع غير واضح أو ضجيجًا.
   لا تقاطع حوارًا جيدًا. إذا كانت آخر ردودك قريبة جدًا من بعضها، فاختر "listen" ما لم يسألوك مباشرة.

@@ -1,7 +1,7 @@
 /*
- * Sameer (سمير) — family conversation app for StackChan.
+ * Hiwar (حوار) — family conversation app for StackChan.
  *
- * Tap the screen or pat the head: Sameer fetches a question from the Sameer server and
+ * Tap the screen or pat the head: Hiwar fetches a question from the server and
  * says it out loud. Then it listens: each time someone finishes speaking, that short turn is
  * sent to the server, which understands it in memory (never stored) and decides whether the
  * robot replies, stays quiet, or wraps up. At the end the family rates the session 1-3.

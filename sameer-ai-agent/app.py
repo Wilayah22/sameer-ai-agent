@@ -29,6 +29,12 @@ from session_logic import CHECK_AGAIN_SECONDS, WRAP_UP_TEXT, decide_intervention
 
 TIMEZONE = ZoneInfo(os.environ.get("SAMEER_TZ", "Asia/Riyadh"))
 MEMORY_ERRORS = (OSError, ValueError, json.JSONDecodeError)
+try:
+    import psycopg
+
+    MEMORY_ERRORS += (psycopg.Error,)  # Postgres storage (DATABASE_URL) is unreachable or failing
+except ImportError:
+    pass
 MAX_MEMBERS = 12
 MAX_SPEECH_CHARS = 400
 # Optional shared secret for the robot. When set, /tts (which spends Gemini credit) requires it.
@@ -135,6 +141,13 @@ def pick_question(memory, now, occasion=None, ages=None):
         return category, gemini_client.FALLBACK_QUESTIONS[category], "fallback"
 
 
+@app.get("/ping")
+def ping():
+    # The robot calls this when its app opens and every 10 minutes, so a sleeping free
+    # instance is already awake when the family taps for a question.
+    return jsonify({"ok": True})
+
+
 @app.get("/")
 def index():
     return render_template("index.html")
@@ -202,6 +215,7 @@ def session_followup():
     if "rating" in session:
         return jsonify({"error": "This session has already been rated."}), 409
 
+    touch_session(session_id)
     follow_ups = session.get("follow_ups", [])
     action = decide_intervention(
         elapsed,
@@ -234,6 +248,25 @@ def session_followup():
         return jsonify({"error": str(error)}), 500
 
     return jsonify({"action": "follow_up", "text": text, "check_again_seconds": CHECK_AGAIN_SECONDS})
+
+
+LIVE_WINDOW_SECONDS = 180  # a session with activity this recent shows as "live" on the dashboard
+
+
+def touch_session(session_id, **increments):
+    """Record that a session is active, and bump activity counters (numbers only, never content)."""
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            session = find_session(memory, session_id)
+            if session is None:
+                return
+            session["last_activity"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
+            for key, amount in increments.items():
+                session[key] = session.get(key, 0) + amount
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
+        app.logger.error("Could not record session activity: %s", error)
 
 
 def forget_conversation(session_id):
@@ -287,6 +320,7 @@ def converse():
         entry = _conversations.setdefault(session_id, {"turns": [], "updated": now})
         entry["turns"] = (entry["turns"] + [{"heard": result["heard"], "reply": result["reply"] if result["action"] != "listen" else ""}])[-MAX_TURNS_KEPT:]
         entry["updated"] = now
+    touch_session(session_id, turns=1, replies=0 if result["action"] == "listen" else 1)
 
     pcm, sample_rate = b"", gemini_client.TTS_SAMPLE_RATE
     if result["action"] != "listen":
@@ -435,9 +469,8 @@ def dashboard_data():
         return jsonify({"error": str(error)}), 500
 
     data = build_dashboard(memory, now, TIMEZONE)
-    demo = data["kpis"]["sessions"] == 0 and not any(
-        s["status"] == "completed" for s in data["recent_sessions"]
-    )
+    # Real data as soon as the family has started any session; the demo family only before that.
+    demo = not data["recent_sessions"]
     if demo:
         data = build_dashboard(demo_memory(now), now, TIMEZONE)
         insight, source = rule_based_insight(data["facts"]), "demo"
@@ -456,6 +489,46 @@ def dashboard_data():
     )
     data.pop("facts")
     return jsonify(data)
+
+
+@app.get("/api/live")
+def live_session():
+    """The session happening right now, if any: polled by the dashboard every few seconds."""
+    now = datetime.now(TIMEZONE)
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    for session in reversed(memory["sessions"]):
+        if "rating" in session or "evaluation" in session:
+            continue
+        stamp = session.get("last_activity") or session.get("started_at")
+        if not stamp:
+            continue
+        try:
+            last = datetime.fromisoformat(stamp)
+            started = datetime.fromisoformat(session.get("started_at") or stamp)
+        except ValueError:
+            continue
+        last = last if last.tzinfo else last.replace(tzinfo=TIMEZONE)
+        started = started if started.tzinfo else started.replace(tzinfo=TIMEZONE)
+        if (now - last).total_seconds() > LIVE_WINDOW_SECONDS:
+            continue
+        return jsonify(
+            {
+                "live": True,
+                "session_id": session.get("id"),
+                "category": session.get("category"),
+                "question": session.get("topic"),
+                "started_at": session.get("started_at"),
+                "elapsed_seconds": max(0, int((now - started).total_seconds())),
+                "turns": session.get("turns", 0),
+                "replies": session.get("replies", 0) + len(session.get("follow_ups", [])),
+            }
+        )
+    return jsonify({"live": False})
 
 
 @app.post("/api/suggestion")

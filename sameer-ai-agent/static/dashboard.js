@@ -1,4 +1,4 @@
-/* لوحة سمير: تقرأ /api/dashboard وتعرضها، وتربط أزرار الجلسة بالروبوت */
+/* لوحة حوار: تقرأ /api/dashboard وتعرضها، وتربط أزرار الجلسة بالروبوت */
 (function () {
   'use strict';
   var doc = document;
@@ -86,7 +86,7 @@
     pill.className = 'trend-pill';
     if (bond.change_pct === null) {
       pill.classList.add('flat');
-      pill.textContent = 'أول شهر مع سمير';
+      pill.textContent = 'أول شهر مع حوار';
     } else {
       if (bond.change_pct < 0) pill.classList.add('flat');
       pill.appendChild(icon(bond.change_pct < 0 ? 'i-dn' : 'i-up', 14));
@@ -294,7 +294,7 @@
 
     box.textContent = '';
     if (!shown.length) {
-      box.appendChild(h('p', { class: 'empty', text: q || state.filter ? 'لا توجد جلسات مطابقة.' : 'لا توجد جلسات بعد. المسوا سمير على المائدة لبدء أول جلسة.' }));
+      box.appendChild(h('p', { class: 'empty', text: q || state.filter ? 'لا توجد جلسات مطابقة.' : 'لا توجد جلسات بعد. المسوا حوار على المائدة لبدء أول جلسة.' }));
       return;
     }
     shown.forEach(function (r) {
@@ -315,11 +315,11 @@
     });
   }
 
-  /* ---------- ملاحظة سمير والاقتراح ---------- */
+  /* ---------- ملاحظة حوار والاقتراح ---------- */
   function renderInsight() {
     var d = state.data;
     $('[data-insight]').textContent = d.insight.text;
-    $('[data-insight-src]').textContent = d.insight.source === 'gemini' ? 'كتبها سمير من أرقام آخر 30 يومًا' : 'من أرقام آخر 30 يومًا';
+    $('[data-insight-src]').textContent = d.insight.source === 'gemini' ? 'كتبها حوار من أرقام آخر 30 يومًا' : 'من أرقام آخر 30 يومًا';
     renderSuggestion(d.suggestion);
   }
   function renderSuggestion(sg) {
@@ -345,7 +345,7 @@
     setBusy(true);
     var q = $('[data-next-q]');
     q.classList.add('loading');
-    q.textContent = 'سمير يفكر في سؤال جديد…';
+    q.textContent = 'حوار يفكر في سؤال جديد…';
     mood($('[data-insight-robot]'), 'thinking');
     api('POST', '/api/suggestion').then(function (sg) {
       state.data.suggestion = sg;
@@ -375,7 +375,7 @@
     list.textContent = '';
     var waiting = false;
     if (d.suggestion && d.suggestion.queued) {
-      list.appendChild(h('li', { text: 'سؤال جاهز على سمير' }, [h('small', { text: d.suggestion.question })]));
+      list.appendChild(h('li', { text: 'سؤال جاهز على حوار' }, [h('small', { text: d.suggestion.question })]));
     }
     d.recent_sessions.slice(0, 3).forEach(function (r) {
       if (r.status !== 'completed') waiting = true;
@@ -408,6 +408,51 @@
     }).catch(function (err) {
       $('[data-insight]').textContent = 'تعذر تحميل بيانات اللوحة: ' + err.message;
     });
+  }
+
+  /* ---------- الجلسة الجارية ---------- */
+  var live = { id: null, startedMs: 0, turns: -1, timer: null };
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  function tickTimer() {
+    var secs = Math.max(0, Math.floor((Date.now() - live.startedMs) / 1000));
+    $('[data-live-timer]').textContent = two(Math.floor(secs / 60)) + ':' + two(secs % 60);
+  }
+  function renderLive(s) {
+    var card = $('[data-live]');
+    if (!s.live) {
+      if (live.id) {
+        // The session just ended: refresh everything so its numbers appear right away.
+        live.id = null;
+        clearInterval(live.timer);
+        card.hidden = true;
+        load();
+      }
+      return;
+    }
+    var isNew = live.id !== s.session_id;
+    live.id = s.session_id;
+    live.startedMs = Date.now() - s.elapsed_seconds * 1000;
+    card.hidden = false;
+    var cat = $('[data-live-cat]');
+    cat.textContent = '';
+    cat.appendChild(icon(CAT_ICONS[s.category] || 'i-chat', 14));
+    cat.appendChild(doc.createTextNode(s.category || ''));
+    $('[data-live-q]').textContent = s.question || '';
+    $('[data-live-turns]').textContent = s.turns;
+    $('[data-live-replies]').textContent = s.replies;
+    tickTimer();
+    if (isNew) {
+      clearInterval(live.timer);
+      live.timer = setInterval(tickTimer, 1000);
+      load();  // the new session appears in the recent sessions list
+    } else if (s.turns !== live.turns) {
+      load();
+    }
+    live.turns = s.turns;
+  }
+  function pollLive() {
+    if (doc.hidden) return;
+    api('GET', '/api/live').then(renderLive).catch(function () {});
   }
 
   /* ---------- الإعدادات ---------- */
@@ -506,4 +551,6 @@
   mountRobots();
   load();
   setInterval(function () { if (!doc.hidden && !state.busy && !dialog.open) load(); }, 60000);
+  pollLive();
+  setInterval(pollLive, 4000);
 })();

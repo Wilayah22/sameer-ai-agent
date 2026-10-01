@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>لوحة سمير</title>
+<title>لوحة حوار</title>
 <meta name="theme-color" content="#0A1930">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='3' y='5' width='42' height='34' rx='14' fill='%23d9b84a'/%3E%3Crect x='9' y='11' width='30' height='22' rx='9' fill='%230a1930'/%3E%3Ccircle cx='18' cy='21' r='3' fill='%23faf7ef'/%3E%3Ccircle cx='30' cy='21' r='3' fill='%23faf7ef'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -75,9 +75,9 @@
 
 <div class="app">
   <aside class="sidebar" id="sidebar" aria-label="القائمة الجانبية">
-    <a class="logo" href="/" aria-label="سمير، الصفحة الرئيسية للموقع">
+    <a class="logo" href="/" aria-label="حوار، الصفحة الرئيسية للموقع">
       <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="3" y="5" width="42" height="34" rx="14" fill="#D9B84A"/><rect x="9" y="11" width="30" height="22" rx="9" fill="#0A1930"/><circle cx="18" cy="21" r="3" fill="#FAF7EF"/><circle cx="30" cy="21" r="3" fill="#FAF7EF"/><path d="M19 27c3 3 7 3 10 0" stroke="#FAF7EF" stroke-width="2.4" stroke-linecap="round" fill="none"/><rect x="17" y="40" width="14" height="4" rx="2" fill="#D9B84A"/></svg>
-      <div><b>سمير</b><span>رفيق الحوار العائلي</span></div>
+      <div><b>حوار</b><span>رفيق الحوار العائلي</span></div>
     </a>
     <nav class="nav" aria-label="أقسام اللوحة">
       <a href="#top" data-nav="top" aria-current="true"><svg class="i"><use href="#i-home"/></svg>الرئيسية</a>
@@ -89,7 +89,7 @@
       <a href="#settings" data-nav="settings" data-open-settings><svg class="i"><use href="#i-settings"/></svg>الإعدادات</a>
     </nav>
     <div class="side-foot">
-      <div class="side-robot"><span data-robot="happy"></span><div><b>سمير معكم دائمًا</b><span>جاهز على المائدة</span></div></div>
+      <div class="side-robot"><span data-robot="happy"></span><div><b>حوار معكم دائمًا</b><span>جاهز على المائدة</span></div></div>
       <button class="family-btn" type="button" data-open-settings>
         <span class="fam-av"><svg class="i"><use href="#i-users"/></svg></span>
         <span class="fam-name"><span data-bind="family-name">عائلتي</span><small>تعديل أفراد العائلة</small></span>
@@ -127,10 +127,25 @@
 
     <div class="demo-note" data-demo hidden role="note">
       <svg class="i"><use href="#i-sparkle"/></svg>
-      <span><b>بيانات تجريبية:</b> تظهر بيانات عائلتكم هنا تلقائيًا بعد أول جلسة مكتملة مع سمير.</span>
+      <span><b>بيانات تجريبية:</b> تظهر بيانات عائلتكم هنا تلقائيًا من أول جلسة مع حوار.</span>
     </div>
 
     <div class="grid">
+      <section class="card live c12" data-live hidden aria-live="polite" aria-labelledby="live-h">
+        <div class="live-head">
+          <span class="live-dot" aria-hidden="true"></span>
+          <h2 id="live-h">جلسة جارية الآن</h2>
+          <span class="chip" data-live-cat></span>
+          <span class="live-timer num" data-live-timer>00:00</span>
+        </div>
+        <p class="live-q" data-live-q></p>
+        <div class="live-stats">
+          <span><b class="num" data-live-turns>0</b> مرات تحدثت فيها العائلة</span>
+          <span><b class="num" data-live-replies>0</b> ردود من حوار</span>
+          <span class="muted">تُحدَّث اللوحة تلقائيًا عند انتهاء الجلسة</span>
+        </div>
+      </section>
+
       <section class="card bond c5" aria-labelledby="bond-h">
         <div class="ring" role="img" data-bond-ring aria-label="مؤشر الترابط العائلي">
           <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/><circle class="bar" data-bond-bar cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-dasharray="326.7" stroke-dashoffset="326.7"/></svg>
@@ -147,12 +162,12 @@
       <section class="card welcome c7" aria-labelledby="welcome-h">
         <div>
           <h2 id="welcome-h">جلسة الليلة تبدأ بسؤال</h2>
-          <p>جهّزوا السؤال التالي من هنا، ثم المسوا شاشة سمير على المائدة ليبدأ الحوار. التقنية تبدأ الحوار، لكنها لا تستبدل الجلسة العائلية.</p>
+          <p>جهّزوا السؤال التالي من هنا، ثم المسوا شاشة حوار على المائدة ليبدأ الحوار. التقنية تبدأ الحوار، لكنها لا تستبدل الجلسة العائلية.</p>
           <div class="actions">
             <button class="btn btn-gold" type="button" data-queue><svg class="i"><use href="#i-plus"/></svg>ابدأ جلسة جديدة</button>
             <button class="btn btn-line" type="button" data-explore><svg class="i"><use href="#i-sparkle"/></svg>استكشف سؤالًا جديدًا</button>
           </div>
-          <p class="queued" data-queued hidden><svg class="i"><use href="#i-check"/></svg>السؤال جاهز على سمير. المسوا الروبوت لبدء الجلسة.</p>
+          <p class="queued" data-queued hidden><svg class="i"><use href="#i-check"/></svg>السؤال جاهز على حوار. المسوا الروبوت لبدء الجلسة.</p>
         </div>
         <span data-robot="listening"></span>
       </section>
@@ -174,7 +189,7 @@
       </section>
 
       <section class="card insight c4" aria-labelledby="insight-h">
-        <div class="insight-head"><span data-robot="happy" data-insight-robot></span><div><h2 id="insight-h">ملاحظة من سمير</h2><small><svg class="i" style="width:14px;height:14px"><use href="#i-sparkle"/></svg><span data-insight-src>من أرقام آخر 30 يومًا</span></small></div></div>
+        <div class="insight-head"><span data-robot="happy" data-insight-robot></span><div><h2 id="insight-h">ملاحظة من حوار</h2><small><svg class="i" style="width:14px;height:14px"><use href="#i-sparkle"/></svg><span data-insight-src>من أرقام آخر 30 يومًا</span></small></div></div>
         <p class="bubble" data-insight>…</p>
         <div class="next">
           <div class="next-label"><span>اقتراح الجلسة القادمة</span><span class="chip" data-next-cat hidden></span></div>
@@ -216,7 +231,7 @@
     <div><label for="fam-name">اسم العائلة</label><input class="field" id="fam-name" name="name" maxlength="40" placeholder="عائلة السالم"></div>
     <div>
       <label>أفراد العائلة</label>
-      <p class="muted" style="margin:-4px 0 8px">الصفة والعمر فقط، ليختار سمير أسئلة تناسب الأعمار.</p>
+      <p class="muted" style="margin:-4px 0 8px">الصفة والعمر فقط، ليختار حوار أسئلة تناسب الأعمار.</p>
       <div data-members></div>
       <button class="btn btn-line" type="button" data-add-member style="min-height:40px"><svg class="i"><use href="#i-plus"/></svg>إضافة فرد</button>
     </div>

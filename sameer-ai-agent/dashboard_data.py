@@ -49,6 +49,11 @@ def _participants(session):
     return evaluation.get("speakers") or None
 
 
+def _questions(session):
+    """Things the robot said to keep the conversation going: the question, follow-ups, and replies."""
+    return 1 + len(session.get("follow_ups", [])) + session.get("replies", 0)
+
+
 def _engagement(session):
     """0-1: the family's rating, blended with how much of the session was conversation."""
     rating = effective_rating(session)
@@ -124,8 +129,8 @@ def build_dashboard(memory, now, tz):
     durations = [_duration_minutes(s, tz) for s in current]
     durations_before = [_duration_minutes(s, tz) for s in previous]
     avg_duration = _mean(durations)
-    questions = sum(1 + len(s.get("follow_ups", [])) for s in current)
-    questions_before = sum(1 + len(s.get("follow_ups", [])) for s in previous)
+    questions = sum(_questions(s) for s in current)
+    questions_before = sum(_questions(s) for s in previous)
 
     members = memory["family"].get("members") or []
     labelled = [s for s in current if (s.get("evaluation") or {}).get("members_spoke")]
@@ -245,7 +250,7 @@ def rule_based_insight(facts):
         return f"أكثر جلساتكم حيوية كانت في فئة {best}. سأقترح منها أكثر دون أن أنسى باقي الفئات."
     if facts["sessions"]:
         return "بداية جميلة! كل جلسة جديدة تساعدني على اقتراح أسئلة تناسب عائلتكم أكثر."
-    return "المسوا سمير على المائدة لتبدأ أول جلسة حوار عائلية."
+    return "المسوا حوار على المائدة لتبدأ أول جلسة عائلية."
 
 
 def demo_memory(now, seed=1):
