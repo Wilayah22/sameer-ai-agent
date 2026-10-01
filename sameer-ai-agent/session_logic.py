@@ -1,7 +1,7 @@
 """When Sameer steps in during a session, and how a finished session is evaluated.
 
 Both work only on numbers the device measures (silence, talk time per anonymous
-speaker). Sameer never receives audio or what the family said.
+speaker). Spoken turns are handled separately by /converse.
 """
 
 import math

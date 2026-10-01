@@ -1,9 +1,10 @@
 /*
  * Sameer (سمير) — family conversation app for StackChan.
  *
- * Tap the screen or pat the head: Sameer fetches a question from the Sameer server,
- * says it out loud, then steps back and listens. Only silence/talking numbers leave the
- * device; audio never does. At the end the family rates the session 1-3 on screen.
+ * Tap the screen or pat the head: Sameer fetches a question from the Sameer server and
+ * says it out loud. Then it listens: each time someone finishes speaking, that short turn is
+ * sent to the server, which understands it in memory (never stored) and decides whether the
+ * robot replies, stays quiet, or wraps up. At the end the family rates the session 1-3.
  */
 #pragma once
 #include <mooncake.h>
@@ -45,4 +46,6 @@ private:
     static void session_task(void* arg);
     void run_session();
     bool speak(const std::string& text);
+    void play_pcm(const std::string& pcm);
+    std::string converse_turn(const std::string& session_id, const std::vector<int16_t>& audio);
 };

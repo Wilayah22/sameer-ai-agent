@@ -7,14 +7,17 @@ firmware (CoreS3, ESP-IDF v5.5.4). The rest of the firmware stays as it is.
 
 1. Tap the screen or pat the head: Sameer looks up, thinking, and asks the server for a question (`/session_intro`).
 2. It says the question out loud with a moving mouth (`/tts` returns 24 kHz PCM, the speaker's own rate).
-3. It steps back and listens. Only loudness is measured, on the device: every ~10 s, or after 20 s of
-   silence, it sends `elapsed_seconds`, `silence_seconds`, `talking` to `/session_followup`, and says
-   the follow-up or wrap-up the server returns. Audio never leaves the device.
-4. Tapping the screen while listening ends the session early.
+3. It listens. Loudness is measured on the device to find when someone starts and stops talking.
+   Each finished turn (a pause of 1.2 s after at least 0.6 s of speech, up to 12 s) is sent as
+   12 kHz WAV to `/converse`. The server understands it in memory (audio is never stored) and
+   decides: **reply** (the robot answers out loud), **listen** (stays quiet while the family talks
+   among themselves) or **wrap_up** (says goodbye and goes to rating).
+4. After 20 s of silence it also asks `/session_followup`, which can add a follow-up question.
+   Tapping the screen while listening ends the session.
 5. It sends the participation numbers to `/evaluate_session`, then shows buttons 1, 2, 3; the choice
-   goes to `/save_rating` and Sameer nods.
+   goes to `/save_rating` and the robot nods.
 
-The camera is never used.
+The RGB bar glows gold only while the microphone is listening. The camera is never used.
 
 ## Build
 

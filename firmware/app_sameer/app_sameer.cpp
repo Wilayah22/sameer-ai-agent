@@ -20,6 +20,7 @@
 #include <sdkconfig.h>
 #include <algorithm>
 #include <cmath>
+#include <deque>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit::lvgl_cpp;
@@ -40,6 +41,13 @@ constexpr int SilenceCheckSecs  = 20;     // ask the server early once silence i
 constexpr int RatingWaitMs      = 90000;
 constexpr int MinVoiceRms       = 250;
 constexpr float VoiceOverNoise  = 2.5f;
+
+// Spoken turns: a turn ends after this much silence, and is sent only if it had enough speech.
+constexpr int TurnEndSilenceMs  = 1200;
+constexpr int MinTurnSpeechMs   = 600;
+constexpr int MaxTurnMs         = 12000;
+constexpr int PreRollChunks     = 3;      // keep the start of the first word
+constexpr int TurnSampleRate    = 12000;  // mic is 24 kHz; every 2 samples are averaged into 1
 
 // Head angles are in tenths of a degree; pitch runs 30 (level) to 870 (straight up).
 constexpr int PitchFacingFamily = 150;
@@ -315,6 +323,19 @@ bool AppSameer::speak(const std::string& text)
         return false;
     }
 
+    play_pcm(pcm);
+    return true;
+}
+
+// Play 16-bit mono PCM at the speaker's rate, with a talking mouth.
+void AppSameer::play_pcm(const std::string& pcm)
+{
+    auto codec     = Board::GetInstance().GetAudioCodec();
+    size_t samples = pcm.size() / 2;
+    if (samples == 0) {
+        return;
+    }
+
     uint32_t duration_ms = samples * 1000 / codec->output_sample_rate();
     post_ui([duration_ms]() { GetStackChan().addModifier(std::make_unique<SpeakingModifier>(duration_ms + 200)); });
 
@@ -329,7 +350,56 @@ bool AppSameer::speak(const std::string& text)
     }
     vTaskDelay(pdMS_TO_TICKS(150));
     codec->EnableOutput(false);
-    return true;
+}
+
+// Send one spoken turn (12 kHz mono) to the server and play the robot's reply, if any.
+// Returns the server's action: "reply", "listen", "wrap_up", or "" when the request failed.
+std::string AppSameer::converse_turn(const std::string& session_id, const std::vector<int16_t>& audio)
+{
+    const uint32_t data_bytes = audio.size() * 2;
+    std::string wav;
+    wav.reserve(44 + data_bytes);
+    auto put32 = [&wav](uint32_t v) { for (int i = 0; i < 4; ++i) wav.push_back(char((v >> (8 * i)) & 0xFF)); };
+    auto put16 = [&wav](uint16_t v) { for (int i = 0; i < 2; ++i) wav.push_back(char((v >> (8 * i)) & 0xFF)); };
+    wav += "RIFF";
+    put32(36 + data_bytes);
+    wav += "WAVEfmt ";
+    put32(16);
+    put16(1);  // PCM
+    put16(1);  // mono
+    put32(TurnSampleRate);
+    put32(TurnSampleRate * 2);
+    put16(2);
+    put16(16);
+    wav += "data";
+    put32(data_bytes);
+    wav.append(reinterpret_cast<const char*>(audio.data()), data_bytes);
+
+    auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
+    http->SetTimeout(RequestTimeoutMs);
+    http->SetHeader("Content-Type", "audio/wav");
+    if (std::string(CONFIG_SAMEER_DEVICE_TOKEN).size() > 0) {
+        http->SetHeader("X-Device-Token", CONFIG_SAMEER_DEVICE_TOKEN);
+    }
+    http->SetContent(std::move(wav));
+    if (!http->Open("POST", server_url("/converse?session_id=" + session_id))) {
+        mclog::tagError(_tag, "converse request failed to connect");
+        return "";
+    }
+    if (http->GetStatusCode() != 200) {
+        mclog::tagError(_tag, "converse -> {}", http->GetStatusCode());
+        http->Close();
+        return "";
+    }
+    std::string action = http->GetResponseHeader("X-Action");
+    std::string pcm;
+    bool ok = read_body(*http, pcm);
+    http->Close();
+    mclog::tagInfo(_tag, "turn: {} ({} bytes of reply)", action, pcm.size());
+    if (ok && !pcm.empty()) {
+        play_pcm(pcm);
+    }
+    return action;
 }
 
 void AppSameer::run_session()
@@ -361,7 +431,8 @@ void AppSameer::run_session()
     });
     speak(question);
 
-    // 2. Listen. Only loudness is measured, on the device; nothing is recorded or sent.
+    // 2. Listen. Loudness is measured on the device; each finished spoken turn goes to the server,
+    //    which understands it in memory (audio is never stored) and decides how the robot responds.
     auto codec = Board::GetInstance().GetAudioCodec();
     const int channels       = std::max(codec->input_channels(), 1);
     const int chunk_frames   = codec->input_sample_rate() * ChunkMs / 1000;
@@ -381,6 +452,13 @@ void AppSameer::run_session()
     float noise_floor       = 0;
     int calibration_chunks  = 0;
     bool wrapped_up         = false;
+
+    bool in_turn            = false;
+    uint32_t turn_start     = 0;
+    int voiced_chunks       = 0;
+    std::vector<int16_t> turn_audio;
+    turn_audio.reserve(TurnSampleRate * MaxTurnMs / 1000 + TurnSampleRate);
+    std::deque<std::vector<int16_t>> preroll;
 
     while (!wrapped_up) {
         if (!codec->InputData(buffer)) {
@@ -422,11 +500,67 @@ void AppSameer::run_session()
             speak(WrapUpText);
             break;
         }
+        // 3. Capture spoken turns; the server decides whether the robot replies, stays quiet or wraps up.
+        std::vector<int16_t> decimated(chunk_frames / 2);
+        for (int i = 0; i < chunk_frames / 2; ++i) {
+            int32_t a = buffer[(2 * i) * channels], b = buffer[(2 * i + 1) * channels];
+            decimated[i] = static_cast<int16_t>((a + b) / 2);
+        }
+        if (!in_turn) {
+            if (voiced) {
+                in_turn       = true;
+                turn_start    = now;
+                voiced_chunks = 1;
+                turn_audio.clear();
+                for (auto& earlier : preroll) {
+                    turn_audio.insert(turn_audio.end(), earlier.begin(), earlier.end());
+                }
+                turn_audio.insert(turn_audio.end(), decimated.begin(), decimated.end());
+            } else {
+                preroll.push_back(std::move(decimated));
+                if (preroll.size() > PreRollChunks) {
+                    preroll.pop_front();
+                }
+            }
+        } else {
+            turn_audio.insert(turn_audio.end(), decimated.begin(), decimated.end());
+            if (voiced) {
+                ++voiced_chunks;
+            }
+            bool turn_over = now - last_voice >= TurnEndSilenceMs || now - turn_start >= MaxTurnMs;
+            if (!turn_over) {
+                continue;  // someone is mid-sentence: never interrupt
+            }
+            in_turn = false;
+            preroll.clear();
+            if (voiced_chunks * ChunkMs >= MinTurnSpeechMs) {
+                codec->EnableInput(false);
+                GetHAL().showRgbColor(0, 0, 0);
+                post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Doubt); });
+
+                uint32_t before    = GetHAL().millis();
+                std::string action = converse_turn(session_id, turn_audio);
+                speaking_ms += GetHAL().millis() - before;
+                turn_audio.clear();
+                if (action == "wrap_up") {
+                    wrapped_up = true;
+                    break;
+                }
+
+                post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral); });
+                codec->EnableInput(true);
+                GetHAL().showRgbColor(0x60, 0x48, 0x08);
+                last_voice = last_check = GetHAL().millis();
+                next_check = last_voice + 10000;
+                continue;
+            }
+        }
+
         if (now < next_check && !long_silence) {
             continue;
         }
 
-        // 3. Tell the server how the conversation is going; it decides whether Sameer steps in.
+        // 4. Tell the server how the conversation is going; it decides whether Sameer steps in.
         last_check   = now;
         cJSON* body  = cJSON_CreateObject();
         cJSON_AddStringToObject(body, "session_id", session_id.c_str());
@@ -465,7 +599,7 @@ void AppSameer::run_session()
 
     uint32_t listened_ms = GetHAL().millis() - start - speaking_ms;
 
-    // 4. Participation numbers for the dashboard (no speaker data: the device can't tell voices apart).
+    // 5. Participation numbers for the dashboard (no speaker data: the device can't tell voices apart).
     {
         cJSON* body = cJSON_CreateObject();
         cJSON_AddStringToObject(body, "session_id", session_id.c_str());
@@ -475,7 +609,7 @@ void AppSameer::run_session()
         post_json("/evaluate_session", to_json(body), response, RequestTimeoutMs);
     }
 
-    // 5. Rating 1-3 on the screen.
+    // 6. Rating 1-3 on the screen.
     _rating = 0;
     _state  = State::Rating;
     post_ui([this]() {

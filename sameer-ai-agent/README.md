@@ -20,7 +20,8 @@ The app listens on `$PORT` (default `8080`).
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model id. |
 | `GEMINI_FALLBACK_MODELS` | `gemini-flash-lite-latest,gemini-flash-latest` | Tried in order when `GEMINI_MODEL` is busy (503/429) after one retry. |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Gemini text-to-speech model for `/tts`. |
-| `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` requires it in `X-Device-Token`. |
+| `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` and `/converse` require it in `X-Device-Token`. |
+| `ROBOT_NAME` | `سمير` | The name the robot uses in every prompt, e.g. `حوار`. |
 | `SAMEER_TZ` | `Asia/Riyadh` | Time zone for time-of-day category choice. |
 
 ## Session flow (device)
@@ -52,7 +53,7 @@ related categories). `source` is `"fallback"` when Gemini was unavailable.
 
 ### `POST /session_followup`
 
-The device sends numbers only. No audio or speech content ever leaves the device.
+This endpoint takes numbers only (silence and talking); spoken turns go to `/converse`.
 
 ```json
 { "session_id": "…", "elapsed_seconds": 90, "silence_seconds": 25, "talking": false }
@@ -110,12 +111,27 @@ voice `GEMINI_TTS_VOICE`, default `Puck`) as raw 16-bit mono PCM, sample rate in
 `X-Sample-Rate` header (24000, the StackChan speaker's rate). When `SAMEER_DEVICE_TOKEN` is set on the
 server, requests need the same value in `X-Device-Token`. The robot app lives in `firmware/`.
 
+### `POST /converse?session_id=…`
+
+Body: one spoken turn as WAV (the robot sends 12 kHz mono, at most 12 s). Gemini listens to it with
+the session's question and the earlier turns and decides:
+
+- `X-Action: reply`: the body is the robot's spoken answer (PCM, rate in `X-Sample-Rate`).
+- `X-Action: listen`: empty body; the family is talking among themselves, so the robot stays quiet.
+- `X-Action: wrap_up`: the body says goodbye and asks for the rating; the robot then shows 1–2–3.
+
+`X-Reply` carries the reply text, URL-encoded. If Gemini is unavailable the answer is `listen`.
+
 ### `GET /stats`
 
 `total_sessions`, `average_rating_overall`, `average_rating_per_category`, `recent_topics`,
 `categories`. Counts only completed sessions (rated or evaluated).
 
 ## Privacy
+
+Spoken turns sent to `/converse` are understood in memory and never written to disk. A one-line
+summary of each turn is kept in server memory so the robot can follow the conversation, and is
+deleted when the session is evaluated or rated (or after an hour).
 
 `memory.json` stores, per session: category, Sameer's own question and follow-ups, rating,
 and evaluation numbers. It never stores audio or what the family said.

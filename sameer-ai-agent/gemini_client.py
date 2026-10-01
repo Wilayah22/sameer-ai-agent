@@ -10,6 +10,7 @@ from threading import Lock
 from google import genai
 from google.genai import errors, types
 
+ROBOT_NAME = os.environ.get("ROBOT_NAME", "سمير").strip() or "سمير"
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
 TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Puck")
@@ -29,20 +30,11 @@ CATEGORY_GUIDES = {
     "الذكريات": "مواقف ماضية جميلة عاشتها العائلة معًا، أو ذكريات من طفولة الوالدين.",
     "الامتنان": "ما نقدّره في يومنا وفي بعضنا، والنعم الصغيرة التي نلاحظها.",
     "الأحلام": "الطموحات والخيال والمستقبل، وما يتمنى كل فرد أن يفعله أو يصبح.",
-    "الحكايات": "قصة قصيرة يبدأها سمير ويكملها أفراد العائلة، أو حكاية من تراثنا.",
+    "الحكايات": f"قصة قصيرة يبدأها {ROBOT_NAME} ويكملها أفراد العائلة، أو حكاية من تراثنا.",
     "القيم": "الصدق والرحمة والتعاون والاحترام من خلال مواقف يومية قريبة من الأطفال.",
 }
 
-SYSTEM_INSTRUCTION = """\
-أنت "سمير"، روبوت صغير على مائدة العائلة العربية. دورك أن تطرح سؤالًا يفتح الحوار ثم تنسحب
-وتترك العائلة تتحدث. لا تقود الحوار ولا تحتكره.
-
-الأسلوب:
-- عربية فصحى بسيطة ودافئة يفهمها طفل في الثامنة.
-- جملة أو جملتان فقط، لا تزيد عن 25 كلمة، لأن الجهاز سينطقها بصوت عالٍ.
-- سؤال مفتوح يستطيع كل فرد في العائلة، صغيرًا أو كبيرًا، أن يجيب عنه.
-- بلا رموز تعبيرية، وبلا علامات تنصيص، وبلا شرح.
-
+SAFETY_RULES = """\
 قيود المحتوى (العائلة فيها أطفال من 8 سنوات فأكثر):
 - لا عنف ولا رعب ولا تفاصيل عن الموت أو المرض أو الحوادث.
 - لا علاقات عاطفية، ولا سياسة، ولا خلافات مذهبية أو دينية، ولا مال أو مشاكل مادية.
@@ -51,6 +43,18 @@ SYSTEM_INSTRUCTION = """\
 - لا تطلب معلومات شخصية (عنوان، مدرسة، أرقام، كلمات مرور).
 - القيم الدينية تُطرح بشكل عام ولطيف فقط، دون فتاوى أو أحكام.
 """
+
+SYSTEM_INSTRUCTION = f"""\
+أنت "{ROBOT_NAME}"، روبوت صغير على مائدة العائلة العربية. دورك أن تطرح سؤالًا يفتح الحوار ثم تنسحب
+وتترك العائلة تتحدث. لا تقود الحوار ولا تحتكره.
+
+الأسلوب:
+- عربية فصحى بسيطة ودافئة يفهمها طفل في الثامنة.
+- جملة أو جملتان فقط، لا تزيد عن 25 كلمة، لأن الجهاز سينطقها بصوت عالٍ.
+- سؤال مفتوح يستطيع كل فرد في العائلة، صغيرًا أو كبيرًا، أن يجيب عنه.
+- بلا رموز تعبيرية، وبلا علامات تنصيص، وبلا شرح.
+
+{SAFETY_RULES}"""
 
 _client = None
 _client_lock = Lock()
@@ -73,16 +77,17 @@ def _get_client():
         return _client
 
 
-def _generate(prompt, system_instruction=SYSTEM_INSTRUCTION):
-    """Generate text, retrying a busy model once and then trying the fallback models."""
+def _generate(contents, system_instruction=SYSTEM_INSTRUCTION, json_schema=None, budget_seconds=TEXT_BUDGET_SECONDS):
+    """Generate text (or JSON), retrying a busy model once and then trying the fallback models."""
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.9,
         http_options=types.HttpOptions(timeout=TEXT_TIMEOUT_MS),
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
     )
     attempts = [MODEL, MODEL] + [m for m in FALLBACK_MODELS if m != MODEL]
-    deadline = time.monotonic() + TEXT_BUDGET_SECONDS
+    deadline = time.monotonic() + budget_seconds
     errors_seen = []
     missing = set()
 
@@ -94,7 +99,7 @@ def _generate(prompt, system_instruction=SYSTEM_INSTRUCTION):
         if index == 1:
             time.sleep(1)  # brief pause before retrying the main model
         try:
-            response = _get_client().models.generate_content(model=model, contents=prompt, config=config)
+            response = _get_client().models.generate_content(model=model, contents=contents, config=config)
         except errors.APIError as error:
             errors_seen.append(f"{model}: {error.code} {error.message}")
             if error.code == 404:
@@ -102,7 +107,9 @@ def _generate(prompt, system_instruction=SYSTEM_INSTRUCTION):
             if error.code in RETRYABLE_CODES or error.code == 404:
                 continue  # busy, rate-limited, or unknown model: try the next one
             break  # bad key or bad request: other models won't help
-        text = (response.text or "").strip().strip('"«»“”').strip()
+        text = (response.text or "").strip()
+        if not json_schema:
+            text = text.strip('"«»“”').strip()
         if text:
             return text
         errors_seen.append(f"{model}: empty response")
@@ -131,7 +138,7 @@ def generate_question(category, ages, avoid_topics, occasion=None, tip=None):
 def generate_follow_up(category, question, previous_follow_ups):
     lines = [
         f"الفئة: {category} — {CATEGORY_GUIDES[category]}",
-        f"السؤال الذي طرحه سمير في بداية الجلسة: {question}",
+        f"السؤال الذي طرحه {ROBOT_NAME} في بداية الجلسة: {question}",
         "العائلة صامتة منذ فترة. لا تعرف ماذا قالوا، فلا تفترض إجاباتهم.",
     ]
     if previous_follow_ups:
@@ -143,8 +150,76 @@ def generate_follow_up(category, question, previous_follow_ups):
     return _generate("\n".join(lines))
 
 
-INSIGHT_INSTRUCTION = """\
-أنت "سمير"، روبوت الحوار العائلي. تكتب للعائلة ملاحظة أسبوعية قصيرة في لوحتها.
+CONVERSE_INSTRUCTION = f"""\
+أنت "{ROBOT_NAME}"، روبوت صغير ودود على مائدة العائلة العربية. طرحت على العائلة سؤالًا يفتح الحوار،
+والآن تسمع مقطعًا صوتيًا قصيرًا قاله أحد أفراد العائلة. مهمتك أن تساعد الحوار لا أن تقوده.
+
+قرر واحدًا من ثلاثة:
+- "reply": إذا وُجّه الكلام إليك (نادوك باسمك، أو سألوك، أو طلبوا رأيك)، أو إذا أجاب أحدهم عن سؤالك
+  وكان تعليق قصير منك سيشجع الآخرين على المشاركة. رُد بجملة أو جملتين لا تزيد عن 30 كلمة،
+  بدفء وببساطة، وغالبًا اختم بدعوة فرد آخر للمشاركة أو بسؤال متابعة قريب من كلامهم.
+- "listen": إذا كانت العائلة تتحدث فيما بينها والحوار ماشٍ، أو إذا كان المقطع غير واضح أو ضجيجًا.
+  لا تقاطع حوارًا جيدًا. إذا كانت آخر ردودك قريبة جدًا من بعضها، فاختر "listen" ما لم يسألوك مباشرة.
+- "wrap_up": إذا طلبوا إنهاء الجلسة أو ودّعوك. ودّعهم بجملة دافئة واطلب منهم تقييم الجلسة:
+  واحد عادية، اثنان جيدة، ثلاثة رائعة.
+
+قواعد الرد:
+- عربية فصحى بسيطة ودافئة. يمكنك أن تفهم اللهجات، لكن رد بفصحى قريبة منها.
+- رد على ما قالوه فعلًا، ولا تخترع تفاصيل لم تُذكر.
+- إذا ذكر طفل أنه في خطر أو يتعرض للأذى، فشجّعه بلطف على إخبار أحد والديه أو شخص بالغ يثق به.
+- بلا رموز تعبيرية وبلا علامات تنصيص.
+
+{SAFETY_RULES}
+في الحقل "heard" اكتب ملخصًا قصيرًا جدًا بالعربية لما قيل (لا يزيد عن 15 كلمة)، ليبقى سياق الجلسة.
+"""
+
+CONVERSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "heard": {"type": "string"},
+        "action": {"type": "string", "enum": ["reply", "listen", "wrap_up"]},
+        "reply": {"type": "string"},
+    },
+    "required": ["heard", "action", "reply"],
+}
+
+
+def converse(audio_wav, category, question, turns, budget_seconds=12):
+    """Understand one spoken turn and decide how the robot responds.
+
+    turns: earlier turns in this session, [{"heard": str, "reply": str}], kept in memory only.
+    Returns {"heard": str, "action": "reply"|"listen"|"wrap_up", "reply": str}.
+    """
+    context = [
+        f"فئة الجلسة: {category} — {CATEGORY_GUIDES.get(category, '')}",
+        f"سؤالك في بداية الجلسة: {question}",
+    ]
+    if turns:
+        context.append("ما دار حتى الآن (الأقدم أولًا):")
+        for turn in turns[-8:]:
+            context.append(f"- العائلة: {turn['heard']}" + (f" | أنت: {turn['reply']}" if turn.get("reply") else ""))
+    context.append("استمع إلى المقطع الصوتي التالي وقرر.")
+
+    raw = _generate(
+        ["\n".join(context), types.Part.from_bytes(data=audio_wav, mime_type="audio/wav")],
+        system_instruction=CONVERSE_INSTRUCTION,
+        json_schema=CONVERSE_SCHEMA,
+        budget_seconds=budget_seconds,
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise GeminiUnavailable(f"Gemini returned invalid JSON: {raw[:120]}") from error
+
+    action = data.get("action") if data.get("action") in ("reply", "listen", "wrap_up") else "listen"
+    reply = str(data.get("reply") or "").strip().strip('"«»“”').strip()
+    if action != "listen" and not reply:
+        action = "listen"
+    return {"heard": str(data.get("heard") or "").strip()[:200], "action": action, "reply": reply[:400]}
+
+
+INSIGHT_INSTRUCTION = f"""\
+أنت "{ROBOT_NAME}"، روبوت الحوار العائلي. تكتب للعائلة ملاحظة أسبوعية قصيرة في لوحتها.
 - جملة أو جملتان، لا تزيد عن 30 كلمة، بعربية فصحى دافئة، بصيغة المتكلم ("لاحظت أن...").
 - اعتمد فقط على الأرقام المعطاة، ولا تذكر رقمًا غير موجود فيها، ولا تخمّن ما قالته العائلة.
 - الأرقام عن نشاط الحوار (عدد الجلسات، مدتها، عدد المشاركين) وليست تقييمًا نفسيًا لأحد.
@@ -168,7 +243,7 @@ _speech_lock = Lock()
 SPEECH_CACHE_SIZE = 32
 
 
-def synthesize_speech(text):
+def synthesize_speech(text, timeout_ms=TIMEOUT_MS):
     """Arabic speech for `text` as raw 16-bit mono PCM. Returns (pcm_bytes, sample_rate)."""
     with _speech_lock:
         if text in _speech_cache:
@@ -180,6 +255,7 @@ def synthesize_speech(text):
             model=TTS_MODEL,
             contents=f"Say warmly and calmly, like a friendly companion at a family dinner table:\n{text}",
             config=types.GenerateContentConfig(
+                http_options=types.HttpOptions(timeout=timeout_ms),
                 response_modalities=["AUDIO"],
                 speech_config=types.SpeechConfig(
                     voice_config=types.VoiceConfig(
