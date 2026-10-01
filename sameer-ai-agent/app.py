@@ -1,6 +1,9 @@
 import json
 import os
+import time
 from datetime import datetime
+from threading import Lock
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -31,7 +34,17 @@ MAX_SPEECH_CHARS = 400
 # Optional shared secret for the robot. When set, /tts (which spends Gemini credit) requires it.
 DEVICE_TOKEN = os.environ.get("SAMEER_DEVICE_TOKEN", "")
 
+# Spoken turns: audio is understood in memory and never stored. A short summary of each turn
+# is kept here, in process memory only, so the robot can follow the conversation; it is dropped
+# when the session is rated or evaluated, or after an hour.
+MAX_TURN_AUDIO_BYTES = 1_500_000
+CONVERSATION_TTL_SECONDS = 3600
+MAX_TURNS_KEPT = 12
+_conversations = {}
+_conversations_lock = Lock()
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
 
 class BadRequest(Exception):
@@ -223,6 +236,77 @@ def session_followup():
     return jsonify({"action": "follow_up", "text": text, "check_again_seconds": CHECK_AGAIN_SECONDS})
 
 
+def forget_conversation(session_id):
+    with _conversations_lock:
+        _conversations.pop(session_id, None)
+
+
+def device_authorized():
+    return not DEVICE_TOKEN or request.headers.get("X-Device-Token") == DEVICE_TOKEN
+
+
+@app.post("/converse")
+def converse():
+    """One spoken turn from the robot: WAV in, the robot's spoken reply (PCM) out.
+
+    X-Action is "reply", "listen" (stay quiet; empty body) or "wrap_up" (say goodbye, then rate).
+    """
+    if not device_authorized():
+        return jsonify({"error": "Invalid device token."}), 401
+
+    session_id = request.args.get("session_id", "")
+    audio = request.get_data(cache=False)
+    if len(audio) < 44 or not audio.startswith(b"RIFF"):
+        return jsonify({"error": "Body must be a WAV file."}), 400
+    if len(audio) > MAX_TURN_AUDIO_BYTES:
+        return jsonify({"error": "Audio is too long."}), 413
+
+    try:
+        with MEMORY_LOCK:
+            session = find_session(load_memory(), session_id)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    if session is None:
+        return jsonify({"error": "Unknown session_id."}), 404
+    if "rating" in session:
+        return jsonify({"error": "This session has already been rated."}), 409
+
+    now = time.monotonic()
+    with _conversations_lock:
+        for key in [k for k, v in _conversations.items() if now - v["updated"] > CONVERSATION_TTL_SECONDS]:
+            del _conversations[key]
+        turns = list(_conversations.get(session_id, {}).get("turns", []))
+
+    try:
+        result = gemini_client.converse(audio, session.get("category", ""), session.get("topic", ""), turns)
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Could not understand the turn, staying quiet: %s", error)
+        return Response(b"", mimetype="application/octet-stream", headers={"X-Action": "listen"})
+
+    with _conversations_lock:
+        entry = _conversations.setdefault(session_id, {"turns": [], "updated": now})
+        entry["turns"] = (entry["turns"] + [{"heard": result["heard"], "reply": result["reply"] if result["action"] != "listen" else ""}])[-MAX_TURNS_KEPT:]
+        entry["updated"] = now
+
+    pcm, sample_rate = b"", gemini_client.TTS_SAMPLE_RATE
+    if result["action"] != "listen":
+        try:
+            pcm, sample_rate = gemini_client.synthesize_speech(result["reply"], timeout_ms=14_000)
+        except gemini_client.GeminiUnavailable as error:
+            app.logger.error("Speech synthesis failed for a reply: %s", error)
+
+    app.logger.info("Turn %s: %s", session_id, result["action"])
+    return Response(
+        pcm,
+        mimetype="application/octet-stream",
+        headers={
+            "X-Action": result["action"],
+            "X-Sample-Rate": str(sample_rate),
+            "X-Reply": quote(result["reply"]),
+        },
+    )
+
+
 @app.post("/save_rating")
 def save_rating():
     payload = json_body()
@@ -244,6 +328,7 @@ def save_rating():
                     return jsonify({"error": "Unknown session_id."}), 404
                 session["rating"] = rating
                 session["rated_at"] = now.isoformat(timespec="seconds")
+                forget_conversation(session_id)
             else:
                 memory["sessions"].append(
                     build_session(payload["topic"], rating, payload.get("category"), now)
@@ -290,6 +375,7 @@ def evaluate_session():
                 result["members_spoke"] = members_spoke
             session["evaluation"] = result
             save_memory(memory)
+            forget_conversation(session_id)
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
@@ -417,7 +503,7 @@ def queue_suggestion():
 @app.post("/tts")
 def tts():
     """Arabic speech for the robot: raw 16-bit mono PCM, sample rate in X-Sample-Rate."""
-    if DEVICE_TOKEN and request.headers.get("X-Device-Token") != DEVICE_TOKEN:
+    if not device_authorized():
         return jsonify({"error": "Invalid device token."}), 401
 
     text = str(json_body().get("text") or "").strip()
