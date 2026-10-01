@@ -40,6 +40,11 @@ constexpr int RatingWaitMs      = 90000;
 constexpr int MinVoiceRms       = 250;
 constexpr float VoiceOverNoise  = 2.5f;
 
+// Head angles are in tenths of a degree; pitch runs 30 (level) to 870 (straight up).
+constexpr int PitchFacingFamily = 150;
+constexpr int PitchThinking     = 380;
+constexpr int PitchNodTop       = 260;
+
 // Same words as the server's wrap-up, used when the family ends the session from the screen.
 constexpr const char* WrapUpText = "كانت جلسة جميلة! كيف تقيّمونها؟ واحد: عادية، اثنان: جيدة، ثلاثة: رائعة.";
 
@@ -303,7 +308,7 @@ void AppSameer::run_session()
     _state = State::Busy;
     post_ui([]() {
         GetStackChan().avatar().setEmotion(avatar::Emotion::Doubt);
-        GetStackChan().motion().moveWithSpeed(0, 20, 300);  // look up, thinking
+        GetStackChan().motion().moveWithSpeed(0, PitchThinking, 300);  // look up, thinking
     });
 
     // 1. Start the session: the server picks the category and question.
@@ -323,7 +328,7 @@ void AppSameer::run_session()
 
     post_ui([]() {
         GetStackChan().avatar().setEmotion(avatar::Emotion::Happy);
-        GetStackChan().motion().goHome(400);
+        GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400);
     });
     speak(question);
 
@@ -336,6 +341,7 @@ void AppSameer::run_session()
     _state = State::Listening;
     post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral); });
     codec->EnableInput(true);
+    GetHAL().showRgbColor(0x60, 0x48, 0x08);  // soft gold: the microphone is listening
 
     uint32_t start          = GetHAL().millis();
     uint32_t last_voice     = start;
@@ -383,6 +389,7 @@ void AppSameer::run_session()
 
         if (_end_requested) {
             codec->EnableInput(false);
+            GetHAL().showRgbColor(0, 0, 0);
             speak(WrapUpText);
             break;
         }
@@ -411,6 +418,7 @@ void AppSameer::run_session()
 
         if (action == "follow_up" || action == "wrap_up") {
             codec->EnableInput(false);
+            GetHAL().showRgbColor(0, 0, 0);
             uint32_t before = GetHAL().millis();
             speak(text);
             speaking_ms += GetHAL().millis() - before;
@@ -419,10 +427,12 @@ void AppSameer::run_session()
                 wrapped_up = true;
             } else {
                 codec->EnableInput(true);
+                GetHAL().showRgbColor(0x60, 0x48, 0x08);
             }
         }
     }
     codec->EnableInput(false);
+    GetHAL().showRgbColor(0, 0, 0);
 
     uint32_t listened_ms = GetHAL().millis() - start - speaking_ms;
 
@@ -459,10 +469,12 @@ void AppSameer::run_session()
         // A happy little nod as thanks.
         post_ui([]() {
             GetStackChan().addModifier(std::make_unique<TimedEmotionModifier>(avatar::Emotion::Happy, 3000));
-            GetStackChan().motion().moveWithSpeed(0, -15, 400);
+            GetStackChan().motion().moveWithSpeed(0, PitchNodTop, 500);
         });
-        vTaskDelay(pdMS_TO_TICKS(600));
-        post_ui([]() { GetStackChan().motion().goHome(400); });
+        vTaskDelay(pdMS_TO_TICKS(500));
+        post_ui([]() { GetStackChan().motion().moveWithSpeed(0, 30, 500); });
+        vTaskDelay(pdMS_TO_TICKS(500));
+        post_ui([]() { GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400); });
     }
     post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral); });
 }
