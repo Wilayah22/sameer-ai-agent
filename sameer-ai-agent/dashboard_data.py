@@ -8,7 +8,7 @@ from a clearly-labelled demo family instead.
 import random
 from datetime import datetime, timedelta
 
-from memory_store import CATEGORIES, effective_rating, session_category
+from memory_store import CATEGORIES, effective_rating, member_label, session_category
 
 WINDOW_DAYS = 30
 WEEKDAYS = ("الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد")
@@ -138,7 +138,8 @@ def build_dashboard(memory, now, tz):
     for session in labelled:
         for member in session["evaluation"]["members_spoke"]:
             spoke[member] = spoke.get(member, 0) + 1
-    roles = [m["role"] for m in members] + [r for r in spoke if r not in {m["role"] for m in members}]
+    labels = [member_label(m) for m in members]
+    roles = labels + [r for r in spoke if r not in set(labels)]
     participation = [
         {"role": role, "pct": round(spoke.get(role, 0) / len(labelled) * 100) if labelled else None}
         for role in roles
@@ -198,7 +199,45 @@ def build_dashboard(memory, now, tz):
         "topics": topics,
         "participation": participation,
         "recent_sessions": recent,
+        "personal": personal_summary(memory, now, tz),
         "facts": insight_facts(current, tz),
+    }
+
+
+def personal_summary(memory, now, tz):
+    """One-to-one conversations over the last 30 days, per family member: counts, minutes, subjects."""
+    window_start = now - timedelta(days=WINDOW_DAYS)
+    by_member = {}
+    for session in memory.get("personal_sessions", []):
+        started = _started(session, tz)
+        if started is None or started <= window_start:
+            continue
+        role = session.get("member") or "غير محدد"
+        entry = by_member.setdefault(role, {"role": role, "sessions": 0, "minutes": 0, "last": None, "topics": {}})
+        entry["sessions"] += 1
+        entry["minutes"] += (session.get("duration_seconds") or 0) / 60
+        if entry["last"] is None or started > entry["last"]:
+            entry["last"] = started
+        for topic in session.get("topics", []):
+            entry["topics"][topic] = entry["topics"].get(topic, 0) + 1
+
+    order = {member_label(m): i for i, m in enumerate(memory["family"].get("members") or [])}
+    members = []
+    for entry in sorted(by_member.values(), key=lambda e: (order.get(e["role"], 99), e["role"])):
+        days = (now.date() - entry["last"].date()).days
+        members.append(
+            {
+                "role": entry["role"],
+                "sessions": entry["sessions"],
+                "minutes": round(entry["minutes"]),
+                "last_days_ago": days,
+                "topics": [t for t, _ in sorted(entry["topics"].items(), key=lambda kv: -kv[1])[:4]],
+            }
+        )
+    return {
+        "sessions": sum(m["sessions"] for m in members),
+        "minutes": sum(m["minutes"] for m in members),
+        "members": members,
     }
 
 
@@ -302,4 +341,26 @@ def demo_memory(now, seed=1):
                 },
             }
         )
-    return {"sessions": sessions, "family": {"name": "عائلة السالم", "members": members, "ages": []}}
+    personal_plan = [
+        (-20, "الابنة", 14, ["القصص والألعاب"]), (-15, "الابن", 18, ["التعلّم", "المدرسة"]),
+        (-11, "الابنة", 9, ["يومي", "الأصدقاء"]), (-8, "الأم", 12, ["الأحلام والأهداف"]),
+        (-6, "الابن", 22, ["الرياضة", "الهوايات"]), (-4, "الابنة", 16, ["القصص والألعاب", "المشاعر"]),
+        (-2, "الابن", 15, ["التعلّم"]), (-1, "الجدة", 10, ["العائلة", "يومي"]),
+    ]
+    personal = [
+        {
+            "id": f"demop{index:02d}",
+            "mode": "personal",
+            "member": member,
+            "started_at": (now + timedelta(days=days_ago)).replace(hour=17, minute=30, second=0, microsecond=0).isoformat(timespec="seconds"),
+            "duration_seconds": minutes * 60,
+            "topics": topics,
+            "ended": True,
+        }
+        for index, (days_ago, member, minutes, topics) in enumerate(personal_plan)
+    ]
+    return {
+        "sessions": sessions,
+        "personal_sessions": personal,
+        "family": {"name": "عائلة السالم", "members": members, "ages": []},
+    }

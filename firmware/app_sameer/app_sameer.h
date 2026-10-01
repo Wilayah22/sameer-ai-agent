@@ -1,7 +1,11 @@
 /*
  * Hiwar (حوار) — family conversation app for StackChan.
  *
- * Tap the screen or pat the head to start a live conversation, like a voice call: the server hands
+ * Tap the screen and choose: "Family" (the family talks together, Hiwar opens and steers) or
+ * "Just me" (a one-to-one chat: Hiwar asks who is there, then chats, helps with learning, plays
+ * story and word games, or reflects on the day). Patting the head starts a family conversation.
+ *
+ * Either way it is a live conversation, like a voice call: the server hands
  * the robot a short-lived Gemini Live token, and the robot streams the microphone straight to
  * Gemini and plays its voice as it arrives. Hiwar opens with a question, then talks with the
  * family until they say goodbye or tap to end. Audio is never stored; the dashboard gets numbers
@@ -31,13 +35,15 @@ public:
     static constexpr int LauncherIndex = 7;
 
 private:
-    enum class State { Idle, Busy, Listening, Live };
+    enum class State { Idle, Choosing, Busy, Listening, Live };
 
     std::atomic<State> _state{State::Idle};
     std::atomic<bool> _start_requested{false};
     std::atomic<bool> _end_requested{false};
     std::atomic<bool> _interrupt_requested{false};
     std::atomic<bool> _robot_speaking{false};
+    std::atomic<bool> _personal{false};      // the chosen mode for the next session
+    std::atomic<uint32_t> _panel_shown_at{0};
 
     // UI changes requested by the session task, applied on the main loop under the LVGL lock.
     std::mutex _ui_mutex;
@@ -45,10 +51,13 @@ private:
     void post_ui(std::function<void()> fn);
 
     void on_screen_tap();
+    void on_head_pat();
+    void choose_mode(bool personal);
+    void show_mode_panel(bool show);  // with the LVGL lock held
 
     static void session_task(void* arg);
     void run_session();
-    bool run_live_session();      // false when Live could not start (nothing was said yet)
+    bool run_live_session(bool personal);  // false when Live could not start (nothing was said yet)
     void run_classic_session();
     void say_thanks();
     bool speak(const std::string& text);
