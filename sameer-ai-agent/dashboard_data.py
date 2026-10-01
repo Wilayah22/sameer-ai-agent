@@ -8,7 +8,7 @@ from a clearly-labelled demo family instead.
 import random
 from datetime import datetime, timedelta
 
-from memory_store import CATEGORIES, effective_rating, session_category
+from memory_store import CATEGORIES, effective_rating, member_label, session_category
 
 WINDOW_DAYS = 30
 WEEKDAYS = ("الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد")
@@ -138,7 +138,8 @@ def build_dashboard(memory, now, tz):
     for session in labelled:
         for member in session["evaluation"]["members_spoke"]:
             spoke[member] = spoke.get(member, 0) + 1
-    roles = [m["role"] for m in members] + [r for r in spoke if r not in {m["role"] for m in members}]
+    labels = [member_label(m) for m in members]
+    roles = labels + [r for r in spoke if r not in set(labels)]
     participation = [
         {"role": role, "pct": round(spoke.get(role, 0) / len(labelled) * 100) if labelled else None}
         for role in roles
@@ -220,7 +221,7 @@ def personal_summary(memory, now, tz):
         for topic in session.get("topics", []):
             entry["topics"][topic] = entry["topics"].get(topic, 0) + 1
 
-    order = {m["role"]: i for i, m in enumerate(memory["family"].get("members") or [])}
+    order = {member_label(m): i for i, m in enumerate(memory["family"].get("members") or [])}
     members = []
     for entry in sorted(by_member.values(), key=lambda e: (order.get(e["role"], 99), e["role"])):
         days = (now.date() - entry["last"].date()).days

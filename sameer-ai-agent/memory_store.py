@@ -155,6 +155,17 @@ PERSONAL_TOPICS = (
     "أخرى",
 )
 GUEST = "ضيف"
+# How a member introduced by voice is related to the family.
+RELATIONS = ("الأب", "الأم", "الابن", "الابنة", "الجد", "الجدة", "الأخ", "الأخت", "العم", "العمة", "الخال", "الخالة", "أخرى")
+
+
+def member_label(member):
+    """How a family member is shown and addressed: their name if given, else their role."""
+    return (member.get("name") or member.get("role") or "").strip()
+
+
+def member_labels(memory):
+    return [label for label in (member_label(m) for m in memory["family"]["members"]) if label]
 
 
 def find_personal_session(memory, session_id):

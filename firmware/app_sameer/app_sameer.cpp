@@ -802,8 +802,18 @@ struct LiveCall {
     std::string resume_handle;                  // (m) lets a dropped connection continue the conversation
     std::string transcript;                     // (m) Hiwar's words in the current turn
     std::string opening_question;               // (m) Hiwar's first turn, for the dashboard
-    std::string member;                         // (m) personal mode: who Hiwar is talking with
+    std::string member;                         // (m) who is talking now (personal mode: the person)
+    std::vector<std::string> speakers;          // (m) family mode: everyone Hiwar recognised
     std::vector<std::string> topics;            // (m) personal mode: general subjects, no details
+    std::string new_members;                    // (m) JSON array: people who introduced themselves
+
+    void heard_from(const std::string& name)  // with the mutex held
+    {
+        member = name;
+        if (std::find(speakers.begin(), speakers.end(), name) == speakers.end() && speakers.size() < 16) {
+            speakers.push_back(name);
+        }
+    }
 
     std::atomic<bool> setup_done{false};
     std::atomic<bool> connected{false};
@@ -898,11 +908,37 @@ struct LiveCall {
             cJSON* args = cJSON_GetObjectItemCaseSensitive(call, "args");
             if (name == "end_conversation") {
                 model_ended = true;
-            } else if (name == "set_member") {
-                std::string role = json_string(args, "role");
+            } else if (name == "identify_member") {
+                std::string who = json_string(args, "member");
                 std::lock_guard<std::mutex> lock(mutex);
-                if (!role.empty()) {
-                    member = role;
+                if (!who.empty()) {
+                    heard_from(who);
+                }
+            } else if (name == "introduce_member") {
+                // Someone new said who they are: the server adds them to the family settings.
+                std::string who = json_string(args, "name");
+                if (!who.empty()) {
+                    cJSON* person = cJSON_CreateObject();
+                    cJSON_AddStringToObject(person, "name", who.c_str());
+                    std::string relation = json_string(args, "relation");
+                    if (!relation.empty()) {
+                        cJSON_AddStringToObject(person, "relation", relation.c_str());
+                    }
+                    cJSON* age = cJSON_GetObjectItemCaseSensitive(args, "age");
+                    if (cJSON_IsNumber(age)) {
+                        cJSON_AddNumberToObject(person, "age", age->valueint);
+                    }
+                    std::lock_guard<std::mutex> lock(mutex);
+                    cJSON* list = cJSON_Parse(new_members.empty() ? "[]" : new_members.c_str());
+                    if (list && cJSON_GetArraySize(list) < 12) {
+                        cJSON_AddItemToArray(list, person);
+                        person = nullptr;
+                    }
+                    if (list) {
+                        new_members = to_json(list);
+                    }
+                    cJSON_Delete(person);
+                    heard_from(who);
                 }
             } else if (name == "note_topic") {
                 std::string topic = json_string(args, "topic");
@@ -1143,6 +1179,17 @@ bool AppSameer::run_live_session(bool personal)
                 cJSON* list = cJSON_AddArrayToObject(body, "topics");
                 for (auto& topic : call.topics) {
                     cJSON_AddItemToArray(list, cJSON_CreateString(topic.c_str()));
+                }
+            } else {
+                cJSON* list = cJSON_AddArrayToObject(body, "speakers");
+                for (auto& who : call.speakers) {
+                    cJSON_AddItemToArray(list, cJSON_CreateString(who.c_str()));
+                }
+            }
+            if (!call.new_members.empty()) {
+                cJSON* introduced = cJSON_Parse(call.new_members.c_str());
+                if (introduced) {
+                    cJSON_AddItemToObject(body, "new_members", introduced);
                 }
             }
         }

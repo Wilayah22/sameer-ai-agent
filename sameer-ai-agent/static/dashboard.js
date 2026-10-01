@@ -500,12 +500,14 @@
   var dialog = $('[data-settings]');
   var form = $('[data-settings-form]');
   function memberRow(m) {
-    var role = h('input', { class: 'field', list: 'roles', maxlength: '30', placeholder: 'الصفة', 'aria-label': 'الصفة', required: '' });
-    role.value = m.role || '';
+    var name = h('input', { class: 'field', maxlength: '30', placeholder: 'الاسم', 'aria-label': 'الاسم' });
+    name.value = m.name || '';
+    var role = h('input', { class: 'field', list: 'roles', maxlength: '30', placeholder: 'الصفة', 'aria-label': 'الصفة' });
+    role.value = m.role && m.role !== 'أخرى' ? m.role : '';
     var age = h('input', { class: 'field', type: 'number', min: '1', max: '120', placeholder: 'العمر', 'aria-label': 'العمر' });
     if (m.age) age.value = m.age;
     var del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'حذف' }, [icon('i-close', 16)]);
-    var row = h('div', { class: 'member-row' }, [role, age, del]);
+    var row = h('div', { class: 'member-row' }, [name, role, age, del]);
     del.addEventListener('click', function () { row.remove(); });
     return row;
   }
@@ -529,8 +531,8 @@
     e.preventDefault();
     var members = $$('.member-row', form).map(function (row) {
       var inputs = row.querySelectorAll('input');
-      return { role: inputs[0].value.trim(), age: inputs[1].value ? Number(inputs[1].value) : null };
-    }).filter(function (m) { return m.role; });
+      return { name: inputs[0].value.trim(), role: inputs[1].value.trim(), age: inputs[2].value ? Number(inputs[2].value) : null };
+    }).filter(function (m) { return m.name || m.role; });
     api('POST', '/family', { name: form.elements.name.value.trim(), members: members }).then(function () {
       dialog.close();
       load();

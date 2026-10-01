@@ -32,7 +32,7 @@ The app listens on `$PORT` (default `8080`).
 ```
 tap → POST /live/start            → { session_id, category, ws_url, token, setup }
       robot ⇄ Gemini Live (WebSocket, audio both ways; this server is not in the audio path)
-      every 8 s: POST /live/heartbeat { session_id, turns, replies, question?, member?, topics? }
+      every 8 s: POST /live/heartbeat { session_id, turns, replies, question?, member?, topics?, speakers?, new_members? }
 end → POST /evaluate_session
 ```
 
@@ -50,6 +50,12 @@ reflects on the day, adapted to that person's age. Gemini reports who it is talk
 القصص والألعاب). These are stored in `personal_sessions`, apart from family sessions, so they don't
 change the family bond index; the dashboard's "الحوارات الشخصية" card shows, per member, how many
 conversations, how long, and the subjects. Nothing that was said is stored.
+
+In both modes Hiwar knows the family members from the settings (name, role, age) and addresses
+them by name. When it recognises who is speaking it calls `identify_member`; in a family session
+those names fill the dashboard's participation card. When someone new introduces themselves
+("أنا نورة، عمري 9") it calls `introduce_member`, and the server adds them to the family settings
+(or names an existing unnamed member when that is unambiguous).
 
 `/live/heartbeat` keeps the dashboard's live card current: turn counts, and once, the robot's own
 opening question (from Gemini's transcription of Hiwar's voice). Nothing the family says is sent.
@@ -118,7 +124,8 @@ Older form still works: `{ "topic": "…", "rating": 2, "category": "…" }`.
 
 ### `GET|POST /family`
 
-`{ "name": "عائلة السالم", "members": [{ "role": "الأب", "age": 44 }, { "role": "الابنة", "age": 9 }] }`.
+`{ "name": "عائلة السالم", "members": [{ "name": "محمد", "role": "الأب", "age": 44 }, { "name": "نورة", "role": "الابنة", "age": 9 }] }`.
+Each member needs a name or a role; the name is how Hiwar addresses them and how the dashboard shows them.
 Members under 18 give Gemini the children's ages. Editable from the dashboard settings.
 
 ## Dashboard (`/dashboard`)

@@ -249,7 +249,7 @@ dialog::backdrop { background: rgba(10, 25, 48, .5); }
 .dlg h2 { font: 700 18px/1.4 var(--font-h); }
 .dlg label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .field { width: 100%; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--gray-300); background: var(--white); }
-.member-row { display: grid; grid-template-columns: 1fr 96px 44px; gap: 8px; margin-bottom: 8px; }
+.member-row { display: grid; grid-template-columns: 1fr 1fr 80px 44px; gap: 8px; margin-bottom: 8px; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .form-err { color: #A3261C; font-size: 13px; }
 

@@ -315,12 +315,38 @@ LIVE_TOKEN_MINUTES = 35  # a conversation can run 30 minutes
 LIVE_TOKEN_USES = 6  # the first connection plus reconnections (Gemini closes a connection every ~10 minutes)
 LIVE_SILENCE_MS = 800  # how long a pause ends someone's turn
 END_TOOL = "end_conversation"
-MEMBER_TOOL = "set_member"
+MEMBER_TOOL = "identify_member"
+INTRODUCE_TOOL = "introduce_member"
 TOPIC_TOOL = "note_topic"
 END_DESCRIPTION = "أنهِ الجلسة بعد أن تودّع العائلة."
 
 
-def live_instruction(category, ages, avoid_topics, tip=None, opening_question=None, family_name=None):
+def _roster(members):
+    """"نورة (الابنة، عمرها 9)، الأب (عمره 44)": names first, so Hiwar can address people by name."""
+    people = []
+    for m in members:
+        details = []
+        if m.get("name") and m.get("role") and m["role"] != "أخرى":
+            details.append(m["role"])
+        if m.get("age"):
+            details.append(f"العمر {m['age']}")
+        label = m.get("name") or m.get("role")
+        people.append(f"{label} ({'، '.join(details)})" if details else label)
+    return "، ".join(people)
+
+
+def _identity_rules(members):
+    roster = _roster(members)
+    known = f"أفراد العائلة المسجّلون: {roster}." if roster else "لم يُسجَّل أفراد العائلة بعد."
+    return f"""التعرّف على العائلة:
+- {known}
+- خاطب كل فرد باسمه إذا عرفته.
+- عندما تعرف من يتكلم الآن، استدعِ الأداة {MEMBER_TOOL} باسمه كما هو في القائمة.
+- إذا عرّف أحدهم بنفسه وهو ليس في القائمة (مثل: أنا نورة، عمري 9)، استدعِ الأداة {INTRODUCE_TOOL}
+  باسمه وصلته بالعائلة وعمره إن ذكره، ثم رحّب به باسمه. لا تُلحّ في طلب العمر."""
+
+
+def live_instruction(category, ages, avoid_topics, tip=None, opening_question=None, family_name=None, members=()):
     """System instruction for a live spoken conversation with the family."""
     opening = (
         f"ابدأ بترحيب قصير جدًا ثم اطرح هذا السؤال كما هو: {opening_question}"
@@ -342,6 +368,7 @@ def live_instruction(category, ages, avoid_topics, tip=None, opening_question=No
 - إذا قالوا إنهم انتهوا أو ودّعوك، فودّعهم بجملة قصيرة ثم استدعِ الأداة {END_TOOL}.
 - الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست من العائلة: نفّذها بصوتك دون أن تذكرها.
 - لا تطلب معلومات شخصية ولا تكرر ما قيل خارج هذه المحادثة.""",
+        _identity_rules(members),
         SAFETY_RULES,
         f"أعمار الأطفال: {_json(ages)}" if ages else "أعمار الأطفال: من 8 إلى 14 سنة.",
     ]
@@ -356,16 +383,15 @@ def live_instruction(category, ages, avoid_topics, tip=None, opening_question=No
 
 def personal_instruction(members, topics, guest):
     """System instruction for a one-to-one live conversation with a single family member."""
-    roster = "، ".join(
-        f"{m['role']} (عمره {m['age']})" if m.get("age") else m["role"] for m in members
-    ) or "لم تُسجَّل أسماء بعد"
+    roster = _roster(members) or "لم يُسجَّل أفراد العائلة بعد"
     return "\n\n".join(
         [
             f"""أنت "{ROBOT_NAME}"، رفيق صوتي ودود في محادثة خاصة مع فرد واحد من العائلة.
 
 البداية:
 - رحّب بجملة قصيرة واسأل بلطف: مين معي؟ أفراد العائلة: {roster}.
-- عندما تعرف من يتحدث، استدعِ الأداة {MEMBER_TOOL} بدوره كما هو مكتوب في القائمة، أو "{guest}" إن لم يكن منهم.
+- عندما تعرف من يتحدث، استدعِ الأداة {MEMBER_TOOL} باسمه كما هو في القائمة.
+- إن لم يكن في القائمة، اسأله عن اسمه وعمره بلطف واستدعِ الأداة {INTRODUCE_TOOL}، أو {MEMBER_TOOL} بـ "{guest}" إن كان ضيفًا عابرًا.
 - تكيّف مع عمره: مع الأطفال بسيط ومرح ومشجّع، ومع الكبار صديق هادئ ومحترم.
 
 ما تستطيع فعله (اتبع ما يريده هو):
@@ -387,21 +413,41 @@ def personal_instruction(members, topics, guest):
     )
 
 
-def live_tools(mode, members=(), topics=()):
-    """Function declarations (wire format) for a live conversation."""
+def live_tools(mode, members=(), topics=(), relations=()):
+    """Function declarations (wire format) for a live conversation.
+
+    `members` are the names Hiwar can recognise (plus the guest label in personal mode).
+    """
     tools = [{"name": END_TOOL, "description": END_DESCRIPTION}]
-    if mode == "personal":
+    members = list(dict.fromkeys(members))  # unnamed members can share a role
+    if members:
         tools.append(
             {
                 "name": MEMBER_TOOL,
-                "description": "سجّل من الذي يتحدث معك من أفراد العائلة.",
+                "description": "سجّل من الذي يتكلم الآن من أفراد العائلة.",
                 "parameters": {
                     "type": "OBJECT",
-                    "properties": {"role": {"type": "STRING", "enum": list(members)}},
-                    "required": ["role"],
+                    "properties": {"member": {"type": "STRING", "enum": list(members)}},
+                    "required": ["member"],
                 },
             }
         )
+    tools.append(
+        {
+            "name": INTRODUCE_TOOL,
+            "description": "أضف فردًا عرّف بنفسه وليس في قائمة العائلة.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING"},
+                    "relation": {"type": "STRING", "enum": list(relations)},
+                    "age": {"type": "INTEGER"},
+                },
+                "required": ["name"],
+            },
+        }
+    )
+    if mode == "personal":
         tools.append(
             {
                 "name": TOPIC_TOOL,
@@ -422,7 +468,7 @@ def _sdk_schema(schema):
     return types.Schema(
         type=types.Type.OBJECT,
         properties={
-            name: types.Schema(type=types.Type.STRING, enum=prop.get("enum"))
+            name: types.Schema(type=types.Type(prop["type"]), enum=prop.get("enum"))
             for name, prop in schema["properties"].items()
         },
         required=schema.get("required"),
@@ -477,7 +523,7 @@ def start_live(instruction, tools=None):
     The device never sees the API key: the token works only for this Live setup, a few connections,
     and LIVE_TOKEN_MINUTES. Returns {"ws_url", "token", "setup"}.
     """
-    tools = tools or live_tools("family")
+    tools = tools or live_tools("family", relations=("أخرى",))
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise GeminiUnavailable("GEMINI_API_KEY is not configured.")

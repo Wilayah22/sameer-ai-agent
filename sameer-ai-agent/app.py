@@ -15,6 +15,7 @@ from memory_store import (
     GUEST,
     MEMORY_LOCK,
     PERSONAL_TOPICS,
+    RELATIONS,
     build_session,
     choose_category,
     compute_personalization_stats,
@@ -23,6 +24,8 @@ from memory_store import (
     find_session,
     last_evaluation_tip,
     load_memory,
+    member_label,
+    member_labels,
     new_session,
     parse_rating,
     recent_topics,
@@ -112,9 +115,12 @@ def parse_members(value):
         if not isinstance(item, dict):
             raise BadRequest("Each member must be an object.")
         role = str(item.get("role") or "").strip()[:30]
-        if not role:
-            raise BadRequest("Each member needs a 'role', e.g. الأب or الابنة.")
-        member = {"role": role}
+        name = str(item.get("name") or "").strip()[:30]
+        if not role and not name:
+            raise BadRequest("Each member needs a name or a role, e.g. نورة or الابنة.")
+        member = {"role": role or "أخرى"}
+        if name:
+            member["name"] = name
         if item.get("age") not in (None, ""):
             member["age"] = parse_age(item["age"])
         members.append(member)
@@ -248,9 +254,11 @@ def live_start():
         last_evaluation_tip(memory),
         opening_question=question,
         family_name=memory["family"].get("name"),
+        members=memory["family"]["members"],
     )
+    tools = gemini_client.live_tools("family", member_labels(memory), relations=RELATIONS)
     try:
-        live = gemini_client.start_live(instruction)
+        live = gemini_client.start_live(instruction, tools)
     except gemini_client.GeminiUnavailable as error:
         app.logger.error("Live conversation unavailable: %s", error)
         return jsonify({"error": str(error)}), 503
@@ -282,8 +290,7 @@ def start_personal_live():
         return jsonify({"error": str(error)}), 500
 
     members = memory["family"]["members"]
-    roles = [m["role"] for m in members] + [GUEST]
-    tools = gemini_client.live_tools("personal", roles, PERSONAL_TOPICS)
+    tools = gemini_client.live_tools("personal", member_labels(memory) + [GUEST], PERSONAL_TOPICS, RELATIONS)
     instruction = gemini_client.personal_instruction(members, PERSONAL_TOPICS, GUEST)
     try:
         live = gemini_client.start_live(instruction, tools)
@@ -308,6 +315,41 @@ def start_personal_live():
     return jsonify({"session_id": session["id"], "mode": "personal", **live})
 
 
+def add_introduced_members(memory, introduced):
+    """Family members who introduced themselves to Hiwar by voice join the family settings."""
+    if not isinstance(introduced, list):
+        return
+    members = memory["family"]["members"]
+    for item in introduced[:MAX_MEMBERS]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:30]
+        if not name or name == GUEST or len(members) >= MAX_MEMBERS:
+            continue
+        if any(name in (m.get("name"), m.get("role")) for m in members):
+            continue
+        relation = item.get("relation") if item.get("relation") in RELATIONS else "أخرى"
+        member = {"role": relation, "name": name}
+        age = item.get("age")
+        if isinstance(age, int) and not isinstance(age, bool) and 1 <= age <= 120:
+            member["age"] = age
+        # A known role without a name ("الابنة", 9) is the same person: give it the name.
+        # Only when it is unambiguous: one unnamed member with that role (and age, if both are known).
+        same = [
+            m for m in members
+            if not m.get("name") and m.get("role") == relation and relation != "أخرى"
+            and (m.get("age") is None or "age" not in member or m["age"] == member["age"])
+        ]
+        same = same[0] if len(same) == 1 else None
+        if same is not None:
+            same["name"] = name
+            if "age" in member:
+                same["age"] = member["age"]
+        else:
+            members.append(member)
+        app.logger.info("Hiwar met a family member by voice (%s)", relation)
+
+
 @app.post("/live/heartbeat")
 def live_heartbeat():
     """Numbers from a live conversation (turns so far), plus the robot's own opening question.
@@ -326,9 +368,15 @@ def live_heartbeat():
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
             session["last_activity"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
-            if session.get("mode") == "personal":
-                roles = {m["role"] for m in memory["family"]["members"]} | {GUEST}
-                if payload.get("member") in roles:
+            add_introduced_members(memory, payload.get("new_members"))
+            known = set(member_labels(memory))
+            if session.get("mode") != "personal":
+                speakers = payload.get("speakers")
+                if isinstance(speakers, list):
+                    spoke = session.setdefault("members_spoke", [])
+                    spoke.extend(m for m in speakers if m in known and m not in spoke)
+            else:
+                if payload.get("member") in known | {GUEST}:
                     session["member"] = payload["member"]
                 topics = payload.get("topics")
                 if isinstance(topics, list):
@@ -563,6 +611,7 @@ def evaluate_session():
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
             result = evaluate(duration, silence, speakers, len(session.get("follow_ups", [])))
+            members_spoke = members_spoke or session.get("members_spoke")
             if members_spoke:
                 result["members_spoke"] = members_spoke
             session["evaluation"] = result
