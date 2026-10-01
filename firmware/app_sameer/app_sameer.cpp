@@ -908,15 +908,15 @@ bool AppSameer::run_live_session()
     if (post_json("/live/start", "{}", response, IntroTimeoutMs) != 200) {
         return false;
     }
-    cJSON* start = cJSON_Parse(response.c_str());
-    if (start == nullptr) {
+    cJSON* started = cJSON_Parse(response.c_str());
+    if (started == nullptr) {
         return false;
     }
-    std::string session_id = json_string(start, "session_id");
-    std::string ws_url     = json_string(start, "ws_url");
-    std::string token      = json_string(start, "token");
-    cJSON* setup           = cJSON_DetachItemFromObjectCaseSensitive(start, "setup");
-    cJSON_Delete(start);
+    std::string session_id = json_string(started, "session_id");
+    std::string ws_url     = json_string(started, "ws_url");
+    std::string token      = json_string(started, "token");
+    cJSON* setup           = cJSON_DetachItemFromObjectCaseSensitive(started, "setup");
+    cJSON_Delete(started);
     if (session_id.empty() || ws_url.empty() || setup == nullptr) {
         cJSON_Delete(setup);
         return false;
