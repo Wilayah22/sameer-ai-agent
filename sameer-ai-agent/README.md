@@ -18,6 +18,7 @@ The app listens on `$PORT` (default `8080`).
 |---|---|---|
 | `GEMINI_API_KEY` | — | Required. Without it Sameer uses built-in fallback questions. |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model id. |
+| `GEMINI_FALLBACK_MODELS` | `gemini-flash-lite-latest,gemini-flash-latest` | Tried in order when `GEMINI_MODEL` is busy (503/429) after one retry. |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Gemini text-to-speech model for `/tts`. |
 | `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` requires it in `X-Device-Token`. |
 | `SAMEER_TZ` | `Asia/Riyadh` | Time zone for time-of-day category choice. |
