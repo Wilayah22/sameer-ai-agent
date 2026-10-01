@@ -470,14 +470,15 @@
     live.id = s.session_id;
     live.startedMs = Date.now() - s.elapsed_seconds * 1000;
     card.hidden = false;
-    var personal = s.mode === 'personal';
+    var personal = s.mode === 'personal', pending = s.mode === 'pending';
     var cat = $('[data-live-cat]');
     cat.textContent = '';
-    cat.appendChild(icon(personal ? 'i-person' : CAT_ICONS[s.category] || 'i-chat', 14));
-    cat.appendChild(doc.createTextNode(personal ? 'حوار شخصي' + (s.member ? ' • ' + s.member : '') : s.category || ''));
+    cat.appendChild(icon(personal ? 'i-person' : pending ? 'i-chat' : CAT_ICONS[s.category] || 'i-chat', 14));
+    cat.appendChild(doc.createTextNode(
+      personal ? 'حوار شخصي' + (s.member ? ' • ' + s.member : '') : pending ? 'بداية الجلسة' : s.category || ''));
     $('[data-live-q]').textContent = personal
       ? (s.topics && s.topics.length ? 'يتحدثان عن: ' + s.topics.join('، ') : 'محادثة خاصة، لا يُعرض محتواها')
-      : s.question || '';
+      : pending ? 'حوار يرحّب ويسأل عن الأحوال، ثم: جلسة عائلية أم شخصية؟' : s.question || '';
     $('[data-live-turns-label]').textContent = personal ? 'مرات تحدّث فيها' : 'مرات تحدثت فيها العائلة';
     $('[data-live-turns]').textContent = s.turns;
     $('[data-live-replies]').textContent = s.replies;

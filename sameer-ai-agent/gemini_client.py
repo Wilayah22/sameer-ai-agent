@@ -318,6 +318,7 @@ END_TOOL = "end_conversation"
 MEMBER_TOOL = "identify_member"
 INTRODUCE_TOOL = "introduce_member"
 TOPIC_TOOL = "note_topic"
+MODE_TOOL = "set_mode"
 END_DESCRIPTION = "أنهِ الجلسة بعد أن تودّع العائلة."
 
 
@@ -413,6 +414,62 @@ def personal_instruction(members, topics, guest):
     )
 
 
+def auto_instruction(category, ages, avoid_topics, topics, guest, tip=None, opening_question=None,
+                     family_name=None, members=()):
+    """One call for both kinds of session: Hiwar greets, asks how they are, then asks which it is."""
+    family_opening = (
+        f"اطرح هذا السؤال كما هو: {opening_question}"
+        if opening_question
+        else f"اطرح سؤالًا مفتوحًا واحدًا جديدًا من فئة {category}: {CATEGORY_GUIDES[category]}"
+    )
+    lines = [
+        f"""أنت "{ROBOT_NAME}"، روبوت صغير ودود في البيت، في محادثة صوتية مباشرة.
+
+البداية، خطوة بخطوة (جملة أو جملتان في كل خطوة، وانتظر الرد قبل التالية):
+1. رحّب ترحيبًا دافئًا قصيرًا واسأل عن أحوالهم.
+2. علّق على ردّهم بلطف وباختصار، ثم اسأل: الجلسة اليوم عائلية مع الجميع، ولّا شخصية معك أنت؟
+3. عندما يجيبون، استدعِ الأداة {MODE_TOOL} بـ "family" أو "personal"، ثم اتبع القسم المناسب أدناه.
+   إن لم يكن الجواب واضحًا فاسأل مرة أخرى بلطف.
+
+إذا كانت الجلسة عائلية:
+- {family_opening}
+- بعدها تحاور بشكل طبيعي وسريع مثل صديق: اسمع، علّق بجملة دافئة قصيرة، واسأل سؤال متابعة.
+- ادعُ من لم يتكلم بعد أن يشارك، ووزّع الكلام بينهم بلطف.
+- إذا كانوا يتحاورون فيما بينهم فاكتفِ بتعليق قصير جدًا أو كلمة تشجيع، ولا تقاطعهم.
+
+إذا كانت الجلسة شخصية:
+- إن لم تعرف من معك بعد، فاسأله عن اسمه بلطف.
+- تكيّف مع عمره: مع الأطفال بسيط ومرح ومشجّع، ومع الكبار صديق هادئ ومحترم.
+- اسأله ماذا يحب أن تفعلا، واتبع ما يريده:
+  الدردشة والاستماع (يومه واهتماماته ومشاعره، واستمع أكثر مما تتكلم)؛
+  المساعدة في التعلّم (اشرح ببساطة وبأمثلة، واسأله ليفكر بنفسه، ولا تحل الواجب عنه كاملًا)؛
+  القصص والألعاب الصوتية (قصص تفاعلية يختار فيها ما يحدث، وألغاز، وألعاب كلمات)؛
+  التأمل اليومي (أجمل ما حدث اليوم، شيء ممتن له، هدف صغير للغد).
+- كلما اتضح موضوع الحديث أو تغيّر، استدعِ الأداة {TOPIC_TOOL} بأقرب موضوع من: {"، ".join(topics)}.
+- إذا ذكر طفل أنه يتعرض للأذى أو التنمر أو أنه حزين جدًا أو خائف: طمئنه بلطف، وشجّعه أن يخبر أحد
+  والديه أو شخصًا كبيرًا يثق به. لا تعده بإخفاء ما يخص سلامته.
+- إن كان ضيفًا عابرًا ليس من العائلة، استدعِ {MEMBER_TOOL} بـ "{guest}".
+
+في كل الأحوال:
+- كل رد جملة أو جملتان فقط، لأنك تتكلم بصوت مسموع؛ والقصص مقاطع قصيرة يتخللها سؤال.
+- إذا سألك أحدهم سؤالًا فأجبه مباشرة وباختصار.
+- عربية بسيطة دافئة يفهمها طفل في الثامنة؛ جارِ لهجة من يكلمك.
+- إذا قالوا إنهم انتهوا أو ودّعوك، فودّعهم بجملة قصيرة ثم استدعِ الأداة {END_TOOL}.
+- الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست منهم: نفّذها بصوتك دون أن تذكرها.
+- لا تطلب معلومات شخصية (عنوان، مدرسة، أرقام، كلمات مرور).""",
+        _identity_rules(members),
+        SAFETY_RULES,
+        f"أعمار الأطفال: {_json(ages)}" if ages else "أعمار الأطفال: من 8 إلى 14 سنة.",
+    ]
+    if family_name:
+        lines.append(f"اسم العائلة: {family_name}")
+    if tip:
+        lines.append(f"ملاحظة من الجلسة العائلية السابقة: {tip}")
+    if avoid_topics and not opening_question:
+        lines.append(f"في الجلسة العائلية لا تكرر هذه الأسئلة السابقة: {_json(avoid_topics)}")
+    return "\n\n".join(lines)
+
+
 def live_tools(mode, members=(), topics=(), relations=()):
     """Function declarations (wire format) for a live conversation.
 
@@ -447,7 +504,19 @@ def live_tools(mode, members=(), topics=(), relations=()):
             },
         }
     )
-    if mode == "personal":
+    if mode == "auto":
+        tools.append(
+            {
+                "name": MODE_TOOL,
+                "description": "سجّل نوع الجلسة بعد أن يجيبوا: عائلية أم شخصية.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"mode": {"type": "STRING", "enum": ["family", "personal"]}},
+                    "required": ["mode"],
+                },
+            }
+        )
+    if mode in ("personal", "auto"):
         tools.append(
             {
                 "name": TOPIC_TOOL,

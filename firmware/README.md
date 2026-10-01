@@ -7,15 +7,14 @@ firmware (CoreS3, ESP-IDF v5.5.4). The rest of the firmware stays as it is.
 
 It works like a voice call:
 
-1. Tap the screen and choose **Family** (the family talks together) or **Just me** (a one-to-one
-   chat: Hiwar asks who is there, then chats, helps with learning, plays games or reflects on the
-   day). Patting the head starts a family conversation straight away.
-   The server picks the topic and returns a short-lived Gemini Live
-   token for this one conversation (`/live/start`). The API key never leaves the server.
+1. Tap the screen or pat the head. The server returns a short-lived Gemini Live token for this one
+   conversation (`/live/start {"mode": "auto"}`). The API key never leaves the server.
 2. The robot opens a WebSocket straight to Gemini Live. It streams the microphone (16 kHz PCM) and
    plays Hiwar's voice (24 kHz PCM) the moment it arrives, so replies start within about a second.
-3. Hiwar greets the family, asks an opening question, then talks with them: it answers, reacts, asks
-   follow-ups, and invites quiet family members in. After 25 s of silence it offers a new question.
+3. Hiwar greets, asks how everyone is, replies, then asks: a family session or a personal one?
+   Family: it asks an opening question and keeps the family talking (answers, reacts, follows up,
+   invites quiet members in). Personal: a one-to-one chat, learning help, stories and games, or
+   reflecting on the day. After 25 s of silence it offers something new.
 4. While Hiwar talks the microphone isn't sent (so it never hears itself). Tap while it talks to cut
    it short; tap while it listens to end the call. It also ends when the family says goodbye
    (Gemini calls `end_conversation`), after a long silence, or after 30 minutes.
