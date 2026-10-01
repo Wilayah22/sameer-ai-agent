@@ -1,3 +1,4 @@
 flask
 google-genai>=2.25.0
 tzdata
+psycopg[binary]>=3.2

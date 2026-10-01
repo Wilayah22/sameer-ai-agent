@@ -1,5 +1,5 @@
 /*
- * Sameer (سمير) — family conversation app for StackChan.
+ * Hiwar (حوار) — family conversation app for StackChan.
  * See app_sameer.h for the flow. Server API: sameer-ai-agent/README.md.
  */
 #include "app_sameer.h"
@@ -26,7 +26,7 @@ using namespace mooncake;
 using namespace smooth_ui_toolkit::lvgl_cpp;
 using namespace stackchan;
 
-static const char* _tag = "SAMEER";
+static const char* _tag = "HIWAR";
 
 namespace {
 
@@ -35,6 +35,7 @@ constexpr uint32_t ThemeDark  = 0x0A1930;  // Sameer navy
 
 constexpr int IntroTimeoutMs    = 90000;  // first request may wake a sleeping free Render instance
 constexpr int RequestTimeoutMs  = 30000;
+constexpr int KeepAliveMs       = 10 * 60 * 1000;  // free Render sleeps after 15 idle minutes
 constexpr int ChunkMs           = 100;    // mic analysis window
 constexpr int TalkingHoldMs     = 1500;   // still "talking" this long after the last voiced chunk
 constexpr int SilenceCheckSecs  = 20;     // ask the server early once silence is this long
@@ -43,7 +44,7 @@ constexpr int MinVoiceRms       = 250;
 constexpr float VoiceOverNoise  = 2.5f;
 
 // Spoken turns: a turn ends after this much silence, and is sent only if it had enough speech.
-constexpr int TurnEndSilenceMs  = 1200;
+constexpr int TurnEndSilenceMs  = 900;
 constexpr int MinTurnSpeechMs   = 600;
 constexpr int MaxTurnMs         = 12000;
 constexpr int PreRollChunks     = 3;      // keep the start of the first word
@@ -110,6 +111,21 @@ int post_json(const std::string& path, const std::string& body, std::string& res
     return status;
 }
 
+// Wake the server (and keep it awake) so the first question doesn't wait for a cold start.
+void ping_server()
+{
+    auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
+    http->SetTimeout(IntroTimeoutMs);
+    if (http->Open("GET", server_url("/ping"))) {
+        std::string ignored;
+        read_body(*http, ignored);
+        mclog::tagInfo(_tag, "ping -> {}", http->GetStatusCode());
+    } else {
+        mclog::tagError(_tag, "ping failed to connect");
+    }
+    http->Close();
+}
+
 std::string json_string(cJSON* root, const char* key)
 {
     cJSON* item = cJSON_GetObjectItemCaseSensitive(root, key);
@@ -129,7 +145,7 @@ std::string to_json(cJSON* root)
 
 AppSameer::AppSameer()
 {
-    setAppInfo().name = "SAMEER";
+    setAppInfo().name = "HIWAR";
     static auto icon  = assets::get_image("icon_ai_agent.bin");
     setAppInfo().icon = (void*)&icon;
     static uint32_t theme_color = ThemeColor;
@@ -179,6 +195,7 @@ void AppSameer::onOpen()
     view::create_status_bar(0xF1E2A8, ThemeDark);
 
     // Network and audio block for seconds at a time, so the session runs on its own task.
+    // It also wakes the server right away, while the family is still getting ready.
     xTaskCreatePinnedToCore(session_task, "sameer", 12 * 1024, this, 4, nullptr, 1);
 }
 
@@ -274,11 +291,17 @@ void AppSameer::show_rating_buttons(bool show)
 void AppSameer::session_task(void* arg)
 {
     auto* app = static_cast<AppSameer*>(arg);
+    ping_server();
+    TickType_t last_ping = xTaskGetTickCount();
     while (true) {
         if (app->_start_requested.exchange(false)) {
             app->run_session();
             app->_state = State::Idle;
             app->_end_requested = false;
+            last_ping = xTaskGetTickCount();
+        } else if (xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(KeepAliveMs)) {
+            ping_server();
+            last_ping = xTaskGetTickCount();
         }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
