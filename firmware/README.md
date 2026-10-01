@@ -14,10 +14,11 @@ It works like a voice call:
 3. Hiwar greets, asks how everyone is, replies, then asks: a family session or a personal one?
    Family: it asks an opening question and keeps the family talking (answers, reacts, follows up,
    invites quiet members in). Personal: a one-to-one chat, learning help, stories and games, or
-   reflecting on the day. After 25 s of silence it offers something new.
+   reflecting on the day. After 45 s of silence it offers something new, and only after several
+   quiet spells in a row does it say goodbye. A call can last up to an hour.
 4. While Hiwar talks the microphone isn't sent (so it never hears itself). Tap while it talks to cut
    it short; tap while it listens to end the call. It also ends when the family says goodbye
-   (Gemini calls `end_conversation`), after a long silence, or after 30 minutes.
+   (Gemini calls `end_conversation`), after a long silence, or after an hour.
 5. Every 8 s it sends numbers only (turns so far) to `/live/heartbeat`, so the dashboard shows the
    session live. At the end it sends `/evaluate_session` and nods. No rating step.
 

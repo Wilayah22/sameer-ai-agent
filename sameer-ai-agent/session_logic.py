@@ -6,10 +6,11 @@ speaker). Spoken turns are handled separately by /converse.
 
 import math
 
-SILENCE_BEFORE_FOLLOW_UP = 20  # seconds of silence before Sameer considers stepping in
-MIN_GAP_BETWEEN_FOLLOW_UPS = 60  # seconds, so Sameer doesn't crowd the conversation
-MAX_FOLLOW_UPS = 3
-MAX_SESSION_SECONDS = 15 * 60
+SILENCE_BEFORE_FOLLOW_UP = 30  # seconds of silence before Hiwar considers stepping in
+MIN_GAP_BETWEEN_FOLLOW_UPS = 60  # seconds, so Hiwar doesn't crowd the conversation
+MAX_FOLLOW_UPS = 6
+SILENCE_BEFORE_WRAP_UP = 90  # after the last follow-up, only a long silence ends the session
+MAX_SESSION_SECONDS = 45 * 60
 BALANCED = 0.85  # normalized entropy of talk shares; ~72/28 for two speakers, ~60/25/15 for three
 CHECK_AGAIN_SECONDS = 10
 
@@ -27,7 +28,7 @@ def decide_intervention(elapsed_seconds, silence_seconds, talking, follow_ups_so
     if talking or silence_seconds < SILENCE_BEFORE_FOLLOW_UP:
         return "wait"
     if follow_ups_so_far >= MAX_FOLLOW_UPS:
-        return "wrap_up"
+        return "wrap_up" if silence_seconds >= SILENCE_BEFORE_WRAP_UP else "wait"
     if last_follow_up_at is not None and elapsed_seconds - last_follow_up_at < MIN_GAP_BETWEEN_FOLLOW_UPS:
         return "wait"
     return "follow_up"

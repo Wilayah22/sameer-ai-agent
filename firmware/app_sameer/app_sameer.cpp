@@ -650,12 +650,12 @@ constexpr int LiveInputRate      = 16000;  // what Gemini Live expects from the 
 constexpr int LiveOutputRate     = 24000;  // what Gemini Live speaks
 constexpr int LiveSetupTimeoutMs = 15000;
 constexpr int EchoTailMs         = 350;    // keep the mic muted this long after Hiwar stops talking
-constexpr int SilenceNudgeMs     = 25000;  // after this much quiet, Hiwar offers a new question
-constexpr int MaxNudges          = 3;
+constexpr int SilenceNudgeMs     = 45000;  // after this much quiet, Hiwar offers something new
+constexpr int MaxNudges          = 3;      // then says goodbye after one more quiet spell
 constexpr int GoodbyeWaitMs      = 12000;
 constexpr int HeartbeatMs        = 8000;
-constexpr int MaxLiveMs          = 30 * 60 * 1000;
-constexpr int MaxReconnects      = 4;      // Gemini closes a connection every ~10 minutes
+constexpr int MaxLiveMs          = 60 * 60 * 1000;
+constexpr int MaxReconnects      = 10;     // Gemini closes a connection every ~10 minutes
 
 constexpr const char* OpenNudge    = "[تنبيه] ابدأ الآن.";
 constexpr const char* SilenceNudge = "[تنبيه] طال الصمت قليلًا. اقترح شيئًا خفيفًا جديدًا، أو ادعُ من لم يتكلم للمشاركة.";
@@ -747,6 +747,7 @@ struct LiveCall {
     std::atomic<int> replies{0};
     std::atomic<uint32_t> last_play_end{0};
     std::atomic<uint32_t> last_turn_complete{0};
+    std::atomic<uint32_t> last_heard{0};  // Gemini heard someone speak (more reliable than loudness)
 
     bool queue_empty()
     {
@@ -798,6 +799,13 @@ struct LiveCall {
                         playback.push_back(std::move(pcm));
                     }
                 }
+            }
+            // Gemini's transcript of the family is used only as a sign that someone is talking:
+            // it is never stored or sent anywhere.
+            cJSON* heard      = cJSON_GetObjectItemCaseSensitive(content, "inputTranscription");
+            cJSON* heard_text = heard ? cJSON_GetObjectItemCaseSensitive(heard, "text") : nullptr;
+            if (cJSON_IsString(heard_text) && heard_text->valuestring && heard_text->valuestring[0]) {
+                last_heard = GetHAL().millis();
             }
             cJSON* said = cJSON_GetObjectItemCaseSensitive(content, "outputTranscription");
             cJSON* text = said ? cJSON_GetObjectItemCaseSensitive(said, "text") : nullptr;
@@ -1244,6 +1252,13 @@ bool AppSameer::run_live_session()
         cJSON_AddStringToObject(audio, "data", base64_encode(pcm.data(), pcm.size() * 2).c_str());
         cJSON_AddStringToObject(audio, "mimeType", "audio/pcm;rate=16000");
         call.send(to_json(message));
+
+        // Gemini heard someone (even a quiet voice the loudness check missed): not silence.
+        uint32_t heard = call.last_heard;
+        if (heard > last_voice) {
+            last_voice = heard;
+            nudges     = 0;
+        }
 
         // 6. A long quiet moment: Hiwar offers something new, and after a few tries says goodbye.
         if (!saying_goodbye && !call.model_talking && now - last_voice >= SilenceNudgeMs) {

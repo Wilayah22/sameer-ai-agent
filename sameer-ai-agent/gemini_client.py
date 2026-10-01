@@ -311,8 +311,8 @@ LIVE_WS_URL = (
     "wss://generativelanguage.googleapis.com/ws/"
     "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained"
 )
-LIVE_TOKEN_MINUTES = 35  # a conversation can run 30 minutes
-LIVE_TOKEN_USES = 6  # the first connection plus reconnections (Gemini closes a connection every ~10 minutes)
+LIVE_TOKEN_MINUTES = 65  # a conversation can run an hour
+LIVE_TOKEN_USES = 12  # the first connection plus reconnections (Gemini closes a connection every ~10 minutes)
 LIVE_SILENCE_MS = 800  # how long a pause ends someone's turn
 END_TOOL = "end_conversation"
 MEMBER_TOOL = "identify_member"
@@ -562,6 +562,10 @@ def _live_config(instruction, tools):
             )
         ],
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        # Tells the robot when someone is talking, even softly; the text stays on the robot.
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        # Without compression Gemini ends an audio session after 15 minutes.
+        context_window_compression=types.ContextWindowCompressionConfig(sliding_window=types.SlidingWindow()),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(silence_duration_ms=LIVE_SILENCE_MS)
         ),
@@ -580,6 +584,8 @@ def live_setup(instruction, tools):
             "systemInstruction": {"parts": [{"text": instruction}]},
             "tools": [{"functionDeclarations": tools}],
             "outputAudioTranscription": {},
+            "inputAudioTranscription": {},
+            "contextWindowCompression": {"slidingWindow": {}},
             "realtimeInputConfig": {"automaticActivityDetection": {"silenceDurationMs": LIVE_SILENCE_MS}},
             "sessionResumption": {},
         }
