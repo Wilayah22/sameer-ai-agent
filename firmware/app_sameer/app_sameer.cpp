@@ -11,6 +11,7 @@
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
 #include <board.h>
+#include <http.h>
 #include <audio/audio_codec.h>
 #include <cJSON.h>
 #include <esp_heap_caps.h>
@@ -56,6 +57,25 @@ std::string server_url(const std::string& path)
     return std::string(CONFIG_SAMEER_SERVER_URL) + path;
 }
 
+// Read the whole response body. Http::ReadAll() can't be used here: the client only buffers
+// 8 KB and ReadAll() waits for the end without draining it, so larger bodies (speech) stall.
+bool read_body(Http& http, std::string& out)
+{
+    out.clear();
+    out.reserve(http.GetBodyLength());
+    std::vector<char> buffer(4096);
+    while (true) {
+        int n = http.Read(buffer.data(), buffer.size());
+        if (n < 0) {
+            return false;
+        }
+        if (n == 0) {
+            return true;
+        }
+        out.append(buffer.data(), n);
+    }
+}
+
 // POST JSON to the Sameer server. Returns the HTTP status (0 when the request failed).
 int post_json(const std::string& path, const std::string& body, std::string& response, int timeoutMs)
 {
@@ -71,7 +91,10 @@ int post_json(const std::string& path, const std::string& body, std::string& res
         return 0;
     }
     int status = http->GetStatusCode();
-    response   = http->ReadAll();
+    if (!read_body(*http, response)) {
+        mclog::tagError(_tag, "POST {} failed while reading the response", path);
+        status = 0;
+    }
     http->Close();
     if (status != 200) {
         mclog::tagError(_tag, "POST {} -> {}: {}", path, status, response);
@@ -279,8 +302,14 @@ bool AppSameer::speak(const std::string& text)
     }
 
     // Download first, then play, so a slow network never makes Sameer stutter.
-    std::string pcm = http->ReadAll();
+    std::string pcm;
+    if (!read_body(*http, pcm)) {
+        mclog::tagError(_tag, "tts download failed after {} bytes", pcm.size());
+        http->Close();
+        return false;
+    }
     http->Close();
+    mclog::tagInfo(_tag, "tts: {} bytes", pcm.size());
     size_t samples = pcm.size() / 2;
     if (samples == 0) {
         return false;
