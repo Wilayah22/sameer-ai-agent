@@ -57,13 +57,8 @@ constexpr int PitchFacingFamily = 150;
 constexpr int PitchThinking     = 380;
 constexpr int PitchNodTop       = 260;
 
-constexpr int ModePanelMs = 10000;  // the mode buttons hide again after this long
-
 // Same words as the server's wrap-up, used when the family ends the session from the screen.
 constexpr const char* WrapUpText = "كانت جلسة جميلة! شكرًا لكم، ونلتقي في حوار قادم.";
-
-std::unique_ptr<Container> _mode_panel;
-std::vector<std::unique_ptr<Button>> _mode_buttons;
 
 std::string server_url(const std::string& path)
 {
@@ -191,7 +186,7 @@ void AppSameer::onOpen()
     // Patting the head starts a session too.
     GetHAL().onHeadPetGesture.connect([this](HeadPetGesture gesture) {
         if (gesture == HeadPetGesture::Press) {
-            on_head_pat();
+            on_screen_tap();
         }
     });
 
@@ -225,7 +220,6 @@ void AppSameer::onClose()
     mclog::tagInfo(_tag, "on close");
     {
         LvglLockGuard lock;
-        show_mode_panel(false);
         GetHAL().onHeadPetGesture.clear();
         GetStackChan().clearModifiers();
         GetStackChan().resetAvatar();
@@ -246,14 +240,9 @@ void AppSameer::on_screen_tap()
 {
     switch (_state.load()) {
         case State::Idle:
-            // Show the two modes; the choice starts the session.
-            _state          = State::Choosing;
-            _panel_shown_at = GetHAL().millis();
-            post_ui([this]() { show_mode_panel(true); });
-            break;
-        case State::Choosing:
-            _state = State::Idle;  // tapping the face again closes the choice
-            post_ui([this]() { show_mode_panel(false); });
+            // Hiwar greets, asks how everyone is, then whether this is a family or a personal session.
+            _state           = State::Busy;
+            _start_requested = true;
             break;
         case State::Listening:
             _end_requested = true;  // the family can end the session early
@@ -268,66 +257,6 @@ void AppSameer::on_screen_tap()
             break;
         default:
             break;
-    }
-}
-
-// Patting the head is the quick way to start a family conversation.
-void AppSameer::on_head_pat()
-{
-    State state = _state.load();
-    if (state == State::Idle || state == State::Choosing) {
-        choose_mode(false);
-    } else {
-        on_screen_tap();
-    }
-}
-
-void AppSameer::choose_mode(bool personal)
-{
-    _personal        = personal;
-    _state           = State::Busy;
-    _start_requested = true;
-    post_ui([this]() { show_mode_panel(false); });  // not inside the button's own click handler
-}
-
-// Must be called with the LVGL lock held.
-void AppSameer::show_mode_panel(bool show)
-{
-    _mode_buttons.clear();
-    _mode_panel.reset();
-    if (!show) {
-        return;
-    }
-
-    _mode_panel = std::make_unique<Container>(lv_screen_active());
-    _mode_panel->setSize(300, 84);
-    _mode_panel->align(LV_ALIGN_BOTTOM_MID, 0, -8);
-    _mode_panel->setBgOpa(0);
-    _mode_panel->setBorderWidth(0);
-    _mode_panel->setPaddingAll(0);
-
-    struct Choice {
-        const char* label;
-        uint32_t color;
-        bool personal;
-    };
-    const Choice choices[] = {{LV_SYMBOL_HOME " Family", ThemeColor, false}, {"Just me", 0xF1E2A8, true}};
-    for (int i = 0; i < 2; ++i) {
-        auto button = std::make_unique<Button>(_mode_panel->get());
-        button->setSize(140, 72);
-        button->align(i == 0 ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID, 0, 0);
-        button->setBgColor(lv_color_hex(choices[i].color));
-        button->setRadius(18);
-        button->label().setText(choices[i].label);
-        button->label().setTextFont(&lv_font_montserrat_24);
-        button->label().setTextColor(lv_color_hex(ThemeDark));
-        bool personal = choices[i].personal;
-        button->onClick().connect([this, personal]() {
-            if (_state == State::Choosing) {
-                choose_mode(personal);
-            }
-        });
-        _mode_buttons.push_back(std::move(button));
     }
 }
 
@@ -347,9 +276,6 @@ void AppSameer::session_task(void* arg)
             app->_end_requested       = false;
             app->_interrupt_requested = false;
             last_ping = xTaskGetTickCount();
-        } else if (app->_state == State::Choosing && GetHAL().millis() - app->_panel_shown_at >= ModePanelMs) {
-            app->_state = State::Idle;
-            app->post_ui([app]() { app->show_mode_panel(false); });
         } else if (xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(KeepAliveMs)) {
             ping_server();
             last_ping = xTaskGetTickCount();
@@ -484,18 +410,11 @@ void AppSameer::run_session()
         GetStackChan().motion().moveWithSpeed(0, PitchThinking, 300);  // look up, thinking
     });
 
-    bool personal = _personal;
-    if (run_live_session(personal)) {
+    if (run_live_session()) {
         return;
     }
+    // Without Live, only the family flow works (one question, then turn by turn).
     _state = State::Busy;
-    if (personal) {
-        // The one-to-one chat needs Live; there is no turn-by-turn version of it.
-        mclog::tagWarn(_tag, "personal conversation unavailable");
-        post_ui([]() { GetStackChan().addModifier(std::make_unique<TimedEmotionModifier>(avatar::Emotion::Sad, 3000)); });
-        speak("عذرًا، لا أستطيع بدء الحوار الشخصي الآن. جرّب بعد قليل.");
-        return;
-    }
     mclog::tagWarn(_tag, "live conversation unavailable, using turn-by-turn mode");
     run_classic_session();
 }
@@ -801,7 +720,9 @@ struct LiveCall {
     std::deque<std::vector<int16_t>> playback;  // (m) Hiwar's voice, waiting to be played
     std::string resume_handle;                  // (m) lets a dropped connection continue the conversation
     std::string transcript;                     // (m) Hiwar's words in the current turn
-    std::string opening_question;               // (m) Hiwar's first turn, for the dashboard
+    std::string opening_question;               // (m) Hiwar's family question, for the dashboard
+    std::string mode;                           // (m) "family" or "personal", once they said which
+    bool capture_question = false;              // (m) the next turn is the family session's question
     std::string member;                         // (m) who is talking now (personal mode: the person)
     std::vector<std::string> speakers;          // (m) family mode: everyone Hiwar recognised
     std::vector<std::string> topics;            // (m) personal mode: general subjects, no details
@@ -891,8 +812,9 @@ struct LiveCall {
                 last_turn_complete = GetHAL().millis();
                 ++replies;
                 std::lock_guard<std::mutex> lock(mutex);
-                if (opening_question.empty() && !transcript.empty()) {
+                if (capture_question && !transcript.empty()) {
                     opening_question = transcript;
+                    capture_question = false;
                 }
                 transcript.clear();
             }
@@ -908,6 +830,16 @@ struct LiveCall {
             cJSON* args = cJSON_GetObjectItemCaseSensitive(call, "args");
             if (name == "end_conversation") {
                 model_ended = true;
+            } else if (name == "set_mode") {
+                std::string chosen = json_string(args, "mode");
+                std::lock_guard<std::mutex> lock(mutex);
+                if ((chosen == "family" || chosen == "personal") && mode.empty()) {
+                    mode = chosen;
+                    if (chosen == "family") {
+                        transcript.clear();  // what Hiwar says next is the opening question
+                        capture_question = true;
+                    }
+                }
             } else if (name == "identify_member") {
                 std::string who = json_string(args, "member");
                 std::lock_guard<std::mutex> lock(mutex);
@@ -1038,12 +970,11 @@ void heartbeat_task(void* arg)
 
 }  // namespace
 
-bool AppSameer::run_live_session(bool personal)
+bool AppSameer::run_live_session()
 {
     // 1. The server picks the topic and hands out a short-lived Gemini token for this conversation.
     std::string response;
-    if (post_json("/live/start", personal ? R"({"mode":"personal"})" : R"({"mode":"family"})", response,
-                  IntroTimeoutMs) != 200) {
+    if (post_json("/live/start", R"({"mode":"auto"})", response, IntroTimeoutMs) != 200) {
         return false;
     }
     cJSON* started = cJSON_Parse(response.c_str());
@@ -1168,6 +1099,10 @@ bool AppSameer::run_live_session(bool personal)
         cJSON_AddNumberToObject(body, "replies", call.replies.load());
         {
             std::lock_guard<std::mutex> lock(call.mutex);
+            bool personal = call.mode == "personal";
+            if (!call.mode.empty()) {
+                cJSON_AddStringToObject(body, "mode", call.mode.c_str());
+            }
             if (!personal && !question_sent && !call.opening_question.empty()) {
                 cJSON_AddStringToObject(body, "question", call.opening_question.c_str());
                 question_sent = true;
