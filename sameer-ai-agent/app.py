@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import gemini_client
 from dashboard_data import build_dashboard, demo_memory, rule_based_insight
@@ -27,6 +27,9 @@ from session_logic import CHECK_AGAIN_SECONDS, WRAP_UP_TEXT, decide_intervention
 TIMEZONE = ZoneInfo(os.environ.get("SAMEER_TZ", "Asia/Riyadh"))
 MEMORY_ERRORS = (OSError, ValueError, json.JSONDecodeError)
 MAX_MEMBERS = 12
+MAX_SPEECH_CHARS = 400
+# Optional shared secret for the robot. When set, /tts (which spends Gemini credit) requires it.
+DEVICE_TOKEN = os.environ.get("SAMEER_DEVICE_TOKEN", "")
 
 app = Flask(__name__)
 
@@ -409,6 +412,31 @@ def queue_suggestion():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
     return jsonify(suggestion)
+
+
+@app.post("/tts")
+def tts():
+    """Arabic speech for the robot: raw 16-bit mono PCM, sample rate in X-Sample-Rate."""
+    if DEVICE_TOKEN and request.headers.get("X-Device-Token") != DEVICE_TOKEN:
+        return jsonify({"error": "Invalid device token."}), 401
+
+    text = str(json_body().get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Field 'text' is required."}), 400
+    if len(text) > MAX_SPEECH_CHARS:
+        return jsonify({"error": f"Text is longer than {MAX_SPEECH_CHARS} characters."}), 400
+
+    try:
+        pcm, sample_rate = gemini_client.synthesize_speech(text)
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Speech synthesis failed: %s", error)
+        return jsonify({"error": "Speech synthesis is unavailable."}), 502
+
+    return Response(
+        pcm,
+        mimetype="application/octet-stream",
+        headers={"X-Sample-Rate": str(sample_rate), "X-Audio-Format": "pcm_s16le_mono"},
+    )
 
 
 @app.get("/stats")

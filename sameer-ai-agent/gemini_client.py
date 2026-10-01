@@ -2,12 +2,17 @@
 
 import json
 import os
+import re
+from collections import OrderedDict
 from threading import Lock
 
 from google import genai
 from google.genai import errors, types
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
+TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Puck")
+TTS_SAMPLE_RATE = 24_000  # matches the StackChan speaker, so the device plays it as-is
 TIMEOUT_MS = 20_000
 
 CATEGORY_GUIDES = {
@@ -128,6 +133,49 @@ def generate_insight(facts):
         "اكتب ملاحظة واحدة لافتة ومفيدة للعائلة من هذه الأرقام."
     )
     return _generate(prompt, INSIGHT_INSTRUCTION)
+
+
+_speech_cache = OrderedDict()
+_speech_lock = Lock()
+SPEECH_CACHE_SIZE = 32
+
+
+def synthesize_speech(text):
+    """Arabic speech for `text` as raw 16-bit mono PCM. Returns (pcm_bytes, sample_rate)."""
+    with _speech_lock:
+        if text in _speech_cache:
+            _speech_cache.move_to_end(text)
+            return _speech_cache[text]
+
+    try:
+        response = _get_client().models.generate_content(
+            model=TTS_MODEL,
+            contents=f"Say warmly and calmly, like a friendly companion at a family dinner table:\n{text}",
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
+                    )
+                ),
+            ),
+        )
+    except errors.APIError as error:
+        raise GeminiUnavailable(f"Gemini TTS error {error.code}: {error.message}") from error
+
+    parts = (response.candidates or [None])[0]
+    parts = parts.content.parts if parts and parts.content else []
+    blob = next((p.inline_data for p in parts if p.inline_data and p.inline_data.data), None)
+    if blob is None:
+        raise GeminiUnavailable("Gemini TTS returned no audio.")
+
+    rate = re.search(r"rate=(\d+)", blob.mime_type or "")
+    result = (blob.data, int(rate.group(1)) if rate else TTS_SAMPLE_RATE)
+    with _speech_lock:
+        _speech_cache[text] = result
+        while len(_speech_cache) > SPEECH_CACHE_SIZE:
+            _speech_cache.popitem(last=False)
+    return result
 
 
 # Used only when Gemini is unavailable, so a tap on the device still starts a session.

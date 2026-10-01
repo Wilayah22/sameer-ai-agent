@@ -18,6 +18,8 @@ The app listens on `$PORT` (default `8080`).
 |---|---|---|
 | `GEMINI_API_KEY` | — | Required. Without it Sameer uses built-in fallback questions. |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model id. |
+| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Gemini text-to-speech model for `/tts`. |
+| `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` requires it in `X-Device-Token`. |
 | `SAMEER_TZ` | `Asia/Riyadh` | Time zone for time-of-day category choice. |
 
 ## Session flow (device)
@@ -99,6 +101,13 @@ Until the family completes its first session, it shows a clearly-labelled demo f
 
 - `POST /api/suggestion` — a new suggested question ("استكشف سؤالًا آخر").
 - `POST /api/suggestion/queue` — "ابدأ جلسة": the next tap on the device asks this question.
+
+### `POST /tts`
+
+`{ "text": "…" }` → Arabic speech from Gemini (`GEMINI_TTS_MODEL`, default `gemini-3.8-flash-tts`;
+voice `GEMINI_TTS_VOICE`, default `Puck`) as raw 16-bit mono PCM, sample rate in the
+`X-Sample-Rate` header (24000, the StackChan speaker's rate). When `SAMEER_DEVICE_TOKEN` is set on the
+server, requests need the same value in `X-Device-Token`. The robot app lives in `firmware/`.
 
 ### `GET /stats`
 
