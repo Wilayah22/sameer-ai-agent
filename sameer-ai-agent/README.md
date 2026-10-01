@@ -97,7 +97,8 @@ This endpoint takes numbers only (silence and talking); spoken turns go to `/con
 
 Returns `{"action": "wait", "check_again_seconds": 10}`, `{"action": "follow_up", "text": "…"}`
 or `{"action": "wrap_up", "text": "…"}`. Sameer waits while the family talks, steps in only
-after 20 s of silence, at most 3 times, at least 60 s apart, and wraps up after 15 minutes.
+after 30 s of silence, at most 6 times, at least 60 s apart; after that only 90 s of silence ends
+the session, and it wraps up after 45 minutes.
 
 ### `POST /evaluate_session`
 
@@ -178,7 +179,10 @@ Render instance is awake before the family taps.
 
 ## Privacy
 
-In a live conversation the robot's audio goes straight to Gemini and never reaches this server;
+In a live conversation the robot's audio goes straight to Gemini and never reaches this server.
+Gemini's transcript of the family is used on the robot only as a sign that someone is talking
+(so a soft voice isn't taken for silence); it is never stored or sent anywhere. Sessions use
+context compression, so they can run past Gemini's 15-minute audio limit (up to an hour);
 only numbers and the robot's own first question are stored. Spoken turns sent to `/converse`
 (fallback mode) are understood in memory and never written to disk. A one-line
 summary of each turn is kept in server memory so the robot can follow the conversation, and is
