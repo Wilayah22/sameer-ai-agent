@@ -32,7 +32,7 @@ The app listens on `$PORT` (default `8080`).
 ```
 tap → POST /live/start            → { session_id, category, ws_url, token, setup }
       robot ⇄ Gemini Live (WebSocket, audio both ways; this server is not in the audio path)
-      every 8 s: POST /live/heartbeat { session_id, turns, replies, question?, member?, topics?, speakers?, new_members? }
+      every 8 s: POST /live/heartbeat { session_id, turns, replies, mode?, question?, member?, topics?, speakers?, new_members? }
 end → POST /evaluate_session
 ```
 
@@ -43,7 +43,13 @@ leaves the server. `setup` is the first WebSocket message; the robot adds a `ses
 handle when it reconnects. Returns 503 when Live is unavailable, and the robot falls back to the
 flow below.
 
-`{"mode": "personal"}` starts a one-to-one conversation instead: Hiwar asks who is there (from the
+The robot sends `{"mode": "auto"}`: Hiwar greets, asks how everyone is, then asks whether this is a
+family or a personal session and calls `set_mode`; the robot passes the answer in
+`/live/heartbeat` (`"mode": "family" | "personal"`), and a personal answer moves the session to
+`personal_sessions` (a question queued from the dashboard is kept for the next family session).
+Without `mode` the session is a family one, as with older firmware.
+
+`{"mode": "personal"}` starts a one-to-one conversation directly: Hiwar asks who is there (from the
 family members in the settings), then chats, helps with learning, plays story and word games, or
 reflects on the day, adapted to that person's age. Gemini reports who it is talking with
 (`set_member`) and the general subject (`note_topic`, one of a fixed list such as المدرسة or

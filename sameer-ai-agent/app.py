@@ -231,6 +231,9 @@ def live_start():
     payload = json_body()
     if payload.get("mode") == "personal":
         return start_personal_live()
+    # "auto": Hiwar greets, asks how they are, then asks whether this is a family or a personal
+    # session and reports the answer in /live/heartbeat. Without a mode (older robots): family.
+    auto = payload.get("mode") == "auto"
     ages = parse_ages(payload.get("ages"))
     occasion = str(payload.get("occasion") or "").strip()[:60] or None
     now = datetime.now(TIMEZONE)
@@ -247,16 +250,31 @@ def live_start():
         app.logger.info("Live category %s (%s)", category, "، ".join(reasons))
         question = None
 
-    instruction = gemini_client.live_instruction(
-        category,
-        ages or family_ages(memory),
-        [t for t in recent_topics(memory["sessions"], limit=10) if t != LIVE_PLACEHOLDER],
-        last_evaluation_tip(memory),
-        opening_question=question,
-        family_name=memory["family"].get("name"),
-        members=memory["family"]["members"],
-    )
-    tools = gemini_client.live_tools("family", member_labels(memory), relations=RELATIONS)
+    avoid = [t for t in recent_topics(memory["sessions"], limit=10) if t != LIVE_PLACEHOLDER]
+    if auto:
+        instruction = gemini_client.auto_instruction(
+            category,
+            ages or family_ages(memory),
+            avoid,
+            PERSONAL_TOPICS,
+            GUEST,
+            last_evaluation_tip(memory),
+            opening_question=question,
+            family_name=memory["family"].get("name"),
+            members=memory["family"]["members"],
+        )
+        tools = gemini_client.live_tools("auto", member_labels(memory) + [GUEST], PERSONAL_TOPICS, RELATIONS)
+    else:
+        instruction = gemini_client.live_instruction(
+            category,
+            ages or family_ages(memory),
+            avoid,
+            last_evaluation_tip(memory),
+            opening_question=question,
+            family_name=memory["family"].get("name"),
+            members=memory["family"]["members"],
+        )
+        tools = gemini_client.live_tools("family", member_labels(memory), relations=RELATIONS)
     try:
         live = gemini_client.start_live(instruction, tools)
     except gemini_client.GeminiUnavailable as error:
@@ -264,7 +282,9 @@ def live_start():
         return jsonify({"error": str(error)}), 503
 
     session = new_session(category, question or LIVE_PLACEHOLDER, now)
-    session["mode"] = "live"
+    session["mode"] = "auto" if auto else "live"
+    if auto and queued:
+        session["queued_suggestion"] = queued  # given back if they choose a personal session
     try:
         with MEMORY_LOCK:
             memory = load_memory()
@@ -273,7 +293,7 @@ def live_start():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
 
-    return jsonify({"session_id": session["id"], "category": category, "mode": "family", **live})
+    return jsonify({"session_id": session["id"], "category": category, "mode": "auto" if auto else "family", **live})
 
 
 def start_personal_live():
@@ -313,6 +333,28 @@ def start_personal_live():
     except MEMORY_ERRORS as error:
         return jsonify({"error": str(error)}), 500
     return jsonify({"session_id": session["id"], "mode": "personal", **live})
+
+
+def settle_mode(memory, session, mode):
+    """The family told Hiwar what kind of session this is: keep it as a family session, or move it
+    to the personal sessions (it then doesn't count towards the family bond index)."""
+    if mode == "family":
+        session["mode"] = "live"
+        session.pop("queued_suggestion", None)
+        return session
+    memory["sessions"].remove(session)
+    queued = session.get("queued_suggestion")
+    if queued and not memory.get("suggestion"):
+        memory["suggestion"] = queued  # the question the family prepared waits for a family session
+    personal = {
+        "id": session["id"],
+        "mode": "personal",
+        "started_at": session["started_at"],
+        "member": None,
+        "topics": [],
+    }
+    memory["personal_sessions"].append(personal)
+    return personal
 
 
 def add_introduced_members(memory, introduced):
@@ -367,6 +409,8 @@ def live_heartbeat():
             session = find_session(memory, session_id) or find_personal_session(memory, session_id)
             if session is None:
                 return jsonify({"error": "Unknown session_id."}), 404
+            if session.get("mode") == "auto" and payload.get("mode") in ("family", "personal"):
+                session = settle_mode(memory, session, payload["mode"])
             session["last_activity"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
             add_introduced_members(memory, payload.get("new_members"))
             known = set(member_labels(memory))
@@ -741,7 +785,7 @@ def live_session():
         return jsonify(
             {
                 "live": True,
-                "mode": "family",
+                "mode": "pending" if session.get("mode") == "auto" else "family",
                 "session_id": session.get("id"),
                 "category": session.get("category"),
                 "question": session.get("topic"),
