@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 from collections import OrderedDict
 from threading import Lock
 
@@ -13,7 +14,16 @@ MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
 TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Puck")
 TTS_SAMPLE_RATE = 24_000  # matches the StackChan speaker, so the device plays it as-is
+# Tried in order when the main model is busy (503) or rate-limited (429).
+FALLBACK_MODELS = [
+    m.strip()
+    for m in os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-flash-lite-latest,gemini-flash-latest").split(",")
+    if m.strip()
+]
 TIMEOUT_MS = 20_000
+TEXT_TIMEOUT_MS = 10_000
+TEXT_BUDGET_SECONDS = 24  # stay under the server's 30 s request timeout
+RETRYABLE_CODES = {429, 500, 503, 504}
 
 CATEGORY_GUIDES = {
     "الذكريات": "مواقف ماضية جميلة عاشتها العائلة معًا، أو ذكريات من طفولة الوالدين.",
@@ -64,22 +74,40 @@ def _get_client():
 
 
 def _generate(prompt, system_instruction=SYSTEM_INSTRUCTION):
-    try:
-        response = _get_client().models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.9,
-            ),
-        )
-    except errors.APIError as error:
-        raise GeminiUnavailable(f"Gemini API error {error.code}: {error.message}") from error
+    """Generate text, retrying a busy model once and then trying the fallback models."""
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.9,
+        http_options=types.HttpOptions(timeout=TEXT_TIMEOUT_MS),
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    )
+    attempts = [MODEL, MODEL] + [m for m in FALLBACK_MODELS if m != MODEL]
+    deadline = time.monotonic() + TEXT_BUDGET_SECONDS
+    errors_seen = []
+    missing = set()
 
-    text = (response.text or "").strip().strip('"«»“”').strip()
-    if not text:
-        raise GeminiUnavailable("Gemini returned an empty response.")
-    return text
+    for index, model in enumerate(attempts):
+        if model in missing:
+            continue
+        if time.monotonic() + TEXT_TIMEOUT_MS / 1000 > deadline:
+            break
+        if index == 1:
+            time.sleep(1)  # brief pause before retrying the main model
+        try:
+            response = _get_client().models.generate_content(model=model, contents=prompt, config=config)
+        except errors.APIError as error:
+            errors_seen.append(f"{model}: {error.code} {error.message}")
+            if error.code == 404:
+                missing.add(model)
+            if error.code in RETRYABLE_CODES or error.code == 404:
+                continue  # busy, rate-limited, or unknown model: try the next one
+            break  # bad key or bad request: other models won't help
+        text = (response.text or "").strip().strip('"«»“”').strip()
+        if text:
+            return text
+        errors_seen.append(f"{model}: empty response")
+
+    raise GeminiUnavailable("Gemini unavailable (" + "; ".join(errors_seen or ["timed out"]) + ")")
 
 
 def _json(data):
