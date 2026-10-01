@@ -1,0 +1,32 @@
+name: StackChan firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  pull_request:
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: bash
+        env:
+          SAMEER_SERVER_URL: ${{ vars.SAMEER_SERVER_URL }}
+          SAMEER_DEVICE_TOKEN: ${{ secrets.SAMEER_DEVICE_TOKEN }}
+        run: |
+          git config --global --add safe.directory '*'
+          . $IDF_PATH/export.sh
+          firmware/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sameer-stackchan-firmware
+          path: firmware/build-sameer/sameer-stackchan.bin
+          if-no-files-found: error
