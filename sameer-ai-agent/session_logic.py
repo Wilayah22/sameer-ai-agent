@@ -13,7 +13,7 @@ MAX_SESSION_SECONDS = 15 * 60
 BALANCED = 0.85  # normalized entropy of talk shares; ~72/28 for two speakers, ~60/25/15 for three
 CHECK_AGAIN_SECONDS = 10
 
-WRAP_UP_TEXT = "كانت جلسة جميلة! كيف تقيّمونها؟ واحد: عادية، اثنان: جيدة، ثلاثة: رائعة."
+WRAP_UP_TEXT = "كانت جلسة جميلة! شكرًا لكم، ونلتقي في حوار قادم."
 
 
 def decide_intervention(elapsed_seconds, silence_seconds, talking, follow_ups_so_far, last_follow_up_at):

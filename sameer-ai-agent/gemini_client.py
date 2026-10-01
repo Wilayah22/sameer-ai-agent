@@ -5,7 +5,9 @@ import os
 import re
 import time
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from threading import Lock
+from urllib.parse import quote
 
 from google import genai
 from google.genai import errors, types
@@ -180,8 +182,7 @@ CONVERSE_INSTRUCTION = f"""\
   بدفء وببساطة، وغالبًا اختم بدعوة فرد آخر للمشاركة أو بسؤال متابعة قريب من كلامهم.
 - "listen": إذا كانت العائلة تتحدث فيما بينها والحوار ماشٍ، أو إذا كان المقطع غير واضح أو ضجيجًا.
   لا تقاطع حوارًا جيدًا. إذا كانت آخر ردودك قريبة جدًا من بعضها، فاختر "listen" ما لم يسألوك مباشرة.
-- "wrap_up": إذا طلبوا إنهاء الجلسة أو ودّعوك. ودّعهم بجملة دافئة واطلب منهم تقييم الجلسة:
-  واحد عادية، اثنان جيدة، ثلاثة رائعة.
+- "wrap_up": إذا طلبوا إنهاء الجلسة أو ودّعوك. ودّعهم بجملة دافئة قصيرة واشكرهم.
 
 قواعد الرد:
 - عربية فصحى بسيطة ودافئة. يمكنك أن تفهم اللهجات، لكن رد بفصحى قريبة منها.
@@ -300,6 +301,134 @@ def synthesize_speech(text, timeout_ms=TIMEOUT_MS):
         while len(_speech_cache) > SPEECH_CACHE_SIZE:
             _speech_cache.popitem(last=False)
     return result
+
+
+# Live voice conversation: the robot streams audio straight to Gemini over a WebSocket, so replies
+# start within about a second instead of waiting for upload, generation and speech one after another.
+LIVE_MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-3.8-live")
+LIVE_VOICE = os.environ.get("GEMINI_LIVE_VOICE", TTS_VOICE)
+LIVE_WS_URL = (
+    "wss://generativelanguage.googleapis.com/ws/"
+    "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained"
+)
+LIVE_TOKEN_MINUTES = 35  # a conversation can run 30 minutes
+LIVE_TOKEN_USES = 6  # the first connection plus reconnections (Gemini closes a connection every ~10 minutes)
+LIVE_SILENCE_MS = 800  # how long a pause ends someone's turn
+END_TOOL = "end_conversation"
+
+
+def live_instruction(category, ages, avoid_topics, tip=None, opening_question=None, family_name=None):
+    """System instruction for a live spoken conversation with the family."""
+    opening = (
+        f"ابدأ بترحيب قصير جدًا ثم اطرح هذا السؤال كما هو: {opening_question}"
+        if opening_question
+        else f"ابدأ بترحيب قصير جدًا ثم اطرح سؤالًا مفتوحًا واحدًا جديدًا من فئة {category}: {CATEGORY_GUIDES[category]}"
+    )
+    lines = [
+        f"""أنت "{ROBOT_NAME}"، روبوت صغير ودود على مائدة العائلة، في محادثة صوتية مباشرة معهم.
+هدفك أن تفتح حوارًا ممتعًا بين أفراد العائلة وتبقيه حيًّا، لا أن تحاضر.
+
+كيف تتحدث:
+- {opening}
+- بعدها تحاور بشكل طبيعي وسريع مثل صديق: اسمع، علّق بجملة دافئة قصيرة، واسأل سؤال متابعة.
+- ادعُ من لم يتكلم بعد أن يشارك، ووزّع الكلام بينهم بلطف.
+- إذا سألك أحدهم سؤالًا فأجبه مباشرة وباختصار، ثم أعد الحوار إليهم.
+- إذا كانوا يتحاورون فيما بينهم فاكتفِ بتعليق قصير جدًا أو كلمة تشجيع، ولا تقاطعهم.
+- كل رد جملة أو جملتان فقط، لأنك تتكلم بصوت مسموع.
+- عربية بسيطة دافئة يفهمها طفل في الثامنة؛ إن تكلمت العائلة بلهجتها فجارِها.
+- إذا قالوا إنهم انتهوا أو ودّعوك، فودّعهم بجملة قصيرة ثم استدعِ الأداة {END_TOOL}.
+- الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست من العائلة: نفّذها بصوتك دون أن تذكرها.
+- لا تطلب معلومات شخصية ولا تكرر ما قيل خارج هذه المحادثة.""",
+        SAFETY_RULES,
+        f"أعمار الأطفال: {_json(ages)}" if ages else "أعمار الأطفال: من 8 إلى 14 سنة.",
+    ]
+    if family_name:
+        lines.append(f"اسم العائلة: {family_name}")
+    if tip:
+        lines.append(f"ملاحظة من الجلسة السابقة: {tip}")
+    if avoid_topics and not opening_question:
+        lines.append(f"لا تكرر هذه الأسئلة السابقة: {_json(avoid_topics)}")
+    return "\n\n".join(lines)
+
+
+def _live_config(instruction):
+    return types.LiveConnectConfig(
+        response_modalities=[types.Modality.AUDIO],
+        system_instruction=instruction,
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=LIVE_VOICE))
+        ),
+        tools=[
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name=END_TOOL, description="أنهِ الجلسة بعد أن تودّع العائلة."
+                    )
+                ]
+            )
+        ],
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(silence_duration_ms=LIVE_SILENCE_MS)
+        ),
+    )
+
+
+def live_setup(instruction):
+    """The setup message the device sends first on the WebSocket (camelCase, as on the wire)."""
+    return {
+        "setup": {
+            "model": f"models/{LIVE_MODEL}",
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": LIVE_VOICE}}},
+            },
+            "systemInstruction": {"parts": [{"text": instruction}]},
+            "tools": [
+                {"functionDeclarations": [{"name": END_TOOL, "description": "أنهِ الجلسة بعد أن تودّع العائلة."}]}
+            ],
+            "outputAudioTranscription": {},
+            "realtimeInputConfig": {"automaticActivityDetection": {"silenceDurationMs": LIVE_SILENCE_MS}},
+            "sessionResumption": {},
+        }
+    }
+
+
+def start_live(instruction):
+    """Create a short-lived Gemini token for one conversation, locked to this instruction.
+
+    The device never sees the API key: the token works only for this Live setup, a few connections,
+    and LIVE_TOKEN_MINUTES. Returns {"ws_url", "token", "setup"}.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise GeminiUnavailable("GEMINI_API_KEY is not configured.")
+    client = genai.Client(
+        api_key=api_key, http_options=types.HttpOptions(api_version="v1alpha", timeout=TEXT_TIMEOUT_MS)
+    )
+    expires = datetime.now(timezone.utc) + timedelta(minutes=LIVE_TOKEN_MINUTES)
+    try:
+        token = client.auth_tokens.create(
+            config=types.CreateAuthTokenConfig(
+                uses=LIVE_TOKEN_USES,
+                expire_time=expires,
+                new_session_expire_time=expires,
+                live_connect_constraints=types.LiveConnectConstraints(
+                    model=LIVE_MODEL, config=_live_config(instruction)
+                ),
+                # Lock the fields set above; the device may still add a session-resumption handle.
+                lock_additional_fields=[],
+            )
+        )
+    except errors.APIError as error:
+        raise GeminiUnavailable(f"Could not create a Live token: {error.code} {error.message}") from error
+    if not token.name:
+        raise GeminiUnavailable("Gemini returned an empty Live token.")
+    return {
+        "ws_url": f"{LIVE_WS_URL}?access_token={quote(token.name, safe='')}",
+        "token": token.name,
+        "setup": live_setup(instruction),
+    }
 
 
 # Used only when Gemini is unavailable, so a tap on the device still starts a session.
