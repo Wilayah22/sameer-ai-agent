@@ -1,21 +1,30 @@
-# Sameer app for StackChan
+# Hiwar app for StackChan
 
-Adds a **SAMEER** app to the official [M5Stack StackChan](https://github.com/m5stack/StackChan)
+Adds a **HIWAR** app to the official [M5Stack StackChan](https://github.com/m5stack/StackChan)
 firmware (CoreS3, ESP-IDF v5.5.4). The rest of the firmware stays as it is.
 
 ## What the robot does
 
-1. Tap the screen or pat the head: Sameer looks up, thinking, and asks the server for a question (`/session_intro`).
-2. It says the question out loud with a moving mouth (`/tts` returns 24 kHz PCM, the speaker's own rate).
-3. It listens. Loudness is measured on the device to find when someone starts and stops talking.
-   Each finished turn (a pause of 1.2 s after at least 0.6 s of speech, up to 12 s) is sent as
-   12 kHz WAV to `/converse`. The server understands it in memory (audio is never stored) and
-   decides: **reply** (the robot answers out loud), **listen** (stays quiet while the family talks
-   among themselves) or **wrap_up** (says goodbye and goes to rating).
-4. After 20 s of silence it also asks `/session_followup`, which can add a follow-up question.
-   Tapping the screen while listening ends the session.
-5. It sends the participation numbers to `/evaluate_session`, then shows buttons 1, 2, 3; the choice
-   goes to `/save_rating` and the robot nods.
+It works like a voice call:
+
+1. Tap the screen or pat the head. The server picks the topic and returns a short-lived Gemini Live
+   token for this one conversation (`/live/start`). The API key never leaves the server.
+2. The robot opens a WebSocket straight to Gemini Live. It streams the microphone (16 kHz PCM) and
+   plays Hiwar's voice (24 kHz PCM) the moment it arrives, so replies start within about a second.
+3. Hiwar greets the family, asks an opening question, then talks with them: it answers, reacts, asks
+   follow-ups, and invites quiet family members in. After 25 s of silence it offers a new question.
+4. While Hiwar talks the microphone isn't sent (so it never hears itself). Tap while it talks to cut
+   it short; tap while it listens to end the call. It also ends when the family says goodbye
+   (Gemini calls `end_conversation`), after a long silence, or after 30 minutes.
+5. Every 8 s it sends numbers only (turns so far) to `/live/heartbeat`, so the dashboard shows the
+   session live. At the end it sends `/evaluate_session` and nods. No rating step.
+
+Gemini closes a Live connection every ~10 minutes; the robot reconnects and resumes the same
+conversation with the handle Gemini gives it.
+
+If Live can't start (for example the model name changed), the robot falls back to the older
+turn-by-turn mode: one question (`/session_intro` + `/tts`), then each spoken turn is uploaded as
+WAV to `/converse`. It works, but each reply takes several seconds.
 
 The RGB bar glows gold only while the microphone is listening. The camera is never used.
 

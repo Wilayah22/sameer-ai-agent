@@ -196,6 +196,103 @@ def session_intro():
     )
 
 
+LIVE_PLACEHOLDER = "محادثة مباشرة"
+
+
+def take_queued_suggestion():
+    """The question the family prepared from the dashboard ("ابدأ جلسة"), removed once used."""
+    with MEMORY_LOCK:
+        memory = load_memory()
+        queued = memory.get("suggestion") if (memory.get("suggestion") or {}).get("queued") else None
+        if queued:
+            memory.pop("suggestion")
+            save_memory(memory)
+    return memory, queued
+
+
+@app.post("/live/start")
+def live_start():
+    """Start a live voice conversation: the robot then talks to Gemini directly over a WebSocket.
+
+    Returns a short-lived token locked to this session's instruction (never the API key), and the
+    setup message to send first. 503 means Live is unavailable; the robot falls back to /session_intro.
+    """
+    if not device_authorized():
+        return jsonify({"error": "Invalid device token."}), 401
+    payload = json_body()
+    ages = parse_ages(payload.get("ages"))
+    occasion = str(payload.get("occasion") or "").strip()[:60] or None
+    now = datetime.now(TIMEZONE)
+
+    try:
+        memory, queued = take_queued_suggestion()
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    if queued:
+        category, question = queued["category"], queued["question"]
+    else:
+        category, reasons = choose_category(memory, now, occasion)
+        app.logger.info("Live category %s (%s)", category, "، ".join(reasons))
+        question = None
+
+    instruction = gemini_client.live_instruction(
+        category,
+        ages or family_ages(memory),
+        [t for t in recent_topics(memory["sessions"], limit=10) if t != LIVE_PLACEHOLDER],
+        last_evaluation_tip(memory),
+        opening_question=question,
+        family_name=memory["family"].get("name"),
+    )
+    try:
+        live = gemini_client.start_live(instruction)
+    except gemini_client.GeminiUnavailable as error:
+        app.logger.error("Live conversation unavailable: %s", error)
+        return jsonify({"error": str(error)}), 503
+
+    session = new_session(category, question or LIVE_PLACEHOLDER, now)
+    session["mode"] = "live"
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            memory["sessions"].append(session)
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+
+    return jsonify({"session_id": session["id"], "category": category, **live})
+
+
+@app.post("/live/heartbeat")
+def live_heartbeat():
+    """Numbers from a live conversation (turns so far), plus the robot's own opening question.
+
+    Keeps the dashboard's live card current. Nothing the family says is sent here.
+    """
+    if not device_authorized():
+        return jsonify({"error": "Invalid device token."}), 401
+    payload = json_body()
+    session_id = payload.get("session_id")
+    question = str(payload.get("question") or "").strip()[:300]
+    try:
+        with MEMORY_LOCK:
+            memory = load_memory()
+            session = find_session(memory, session_id)
+            if session is None:
+                return jsonify({"error": "Unknown session_id."}), 404
+            session["last_activity"] = datetime.now(TIMEZONE).isoformat(timespec="seconds")
+            for key in ("turns", "replies"):
+                value = payload.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 10_000:
+                    session[key] = max(session.get(key, 0), value)
+            if question and session.get("topic") == LIVE_PLACEHOLDER:
+                session["topic"] = question
+            save_memory(memory)
+    except MEMORY_ERRORS as error:
+        return jsonify({"error": str(error)}), 500
+    return jsonify({"status": "ok"})
+
+
 @app.post("/session_followup")
 def session_followup():
     """Called by the device during a session with simple engagement numbers only."""

@@ -20,12 +20,33 @@ The app listens on `$PORT` (default `8080`).
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model id. |
 | `GEMINI_FALLBACK_MODELS` | `gemini-flash-lite-latest,gemini-flash-latest` | Tried in order when `GEMINI_MODEL` is busy (503/429) after one retry. |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Gemini text-to-speech model for `/tts`. |
+| `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | Gemini Live model for the robot's voice-call conversations. |
+| `GEMINI_LIVE_VOICE` | `Puck` | Voice for Live conversations. |
 | `SAMEER_DEVICE_TOKEN` | — | Optional. When set, `/tts` and `/converse` require it in `X-Device-Token`. |
 | `ROBOT_NAME` | `حوار` | The name the robot uses in every prompt. |
 | `DATABASE_URL` | — | Optional Postgres URL (e.g. a free Neon database). Without it sessions live in `memory.json`, which Render's free disk wipes on every deploy. |
 | `SAMEER_TZ` | `Asia/Riyadh` | Time zone for time-of-day category choice. |
 
-## Session flow (device)
+## Live conversation (device)
+
+```
+tap → POST /live/start            → { session_id, category, ws_url, token, setup }
+      robot ⇄ Gemini Live (WebSocket, audio both ways; this server is not in the audio path)
+      every 8 s: POST /live/heartbeat { session_id, turns, replies, question? }
+end → POST /evaluate_session
+```
+
+`/live/start` picks the category (same rules as below, or the question queued from the dashboard),
+writes the instruction (family ages, last session's tip, safety rules), and creates a Gemini
+**ephemeral token** locked to that instruction: a few connections, 35 minutes. The API key never
+leaves the server. `setup` is the first WebSocket message; the robot adds a `sessionResumption`
+handle when it reconnects. Returns 503 when Live is unavailable, and the robot falls back to the
+flow below.
+
+`/live/heartbeat` keeps the dashboard's live card current: turn counts, and once, the robot's own
+opening question (from Gemini's transcription of Hiwar's voice). Nothing the family says is sent.
+
+## Session flow (device, turn-by-turn fallback)
 
 ```
 tap → POST /session_intro          → speak "question"
@@ -142,7 +163,9 @@ Render instance is awake before the family taps.
 
 ## Privacy
 
-Spoken turns sent to `/converse` are understood in memory and never written to disk. A one-line
+In a live conversation the robot's audio goes straight to Gemini and never reaches this server;
+only numbers and the robot's own first question are stored. Spoken turns sent to `/converse`
+(fallback mode) are understood in memory and never written to disk. A one-line
 summary of each turn is kept in server memory so the robot can follow the conversation, and is
 deleted when the session is evaluated or rated (or after an hour).
 

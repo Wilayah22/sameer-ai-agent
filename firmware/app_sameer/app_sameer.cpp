@@ -12,6 +12,8 @@
 #include <apps/common/common.h>
 #include <board.h>
 #include <http.h>
+#include <web_socket.h>
+#include <mbedtls/base64.h>
 #include <audio/audio_codec.h>
 #include <cJSON.h>
 #include <esp_heap_caps.h>
@@ -20,6 +22,7 @@
 #include <sdkconfig.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <deque>
 
 using namespace mooncake;
@@ -39,7 +42,6 @@ constexpr int KeepAliveMs       = 10 * 60 * 1000;  // free Render sleeps after 1
 constexpr int ChunkMs           = 100;    // mic analysis window
 constexpr int TalkingHoldMs     = 1500;   // still "talking" this long after the last voiced chunk
 constexpr int SilenceCheckSecs  = 20;     // ask the server early once silence is this long
-constexpr int RatingWaitMs      = 90000;
 constexpr int MinVoiceRms       = 250;
 constexpr float VoiceOverNoise  = 2.5f;
 
@@ -56,10 +58,7 @@ constexpr int PitchThinking     = 380;
 constexpr int PitchNodTop       = 260;
 
 // Same words as the server's wrap-up, used when the family ends the session from the screen.
-constexpr const char* WrapUpText = "كانت جلسة جميلة! كيف تقيّمونها؟ واحد: عادية، اثنان: جيدة، ثلاثة: رائعة.";
-
-std::unique_ptr<Container> _rating_panel;
-std::vector<std::unique_ptr<Button>> _rating_buttons;
+constexpr const char* WrapUpText = "كانت جلسة جميلة! شكرًا لكم، ونلتقي في حوار قادم.";
 
 std::string server_url(const std::string& path)
 {
@@ -196,7 +195,7 @@ void AppSameer::onOpen()
 
     // Network and audio block for seconds at a time, so the session runs on its own task.
     // It also wakes the server right away, while the family is still getting ready.
-    xTaskCreatePinnedToCore(session_task, "sameer", 12 * 1024, this, 4, nullptr, 1);
+    xTaskCreatePinnedToCore(session_task, "hiwar", 16 * 1024, this, 4, nullptr, 1);
 }
 
 void AppSameer::onRunning()
@@ -221,7 +220,6 @@ void AppSameer::onClose()
     mclog::tagInfo(_tag, "on close");
     {
         LvglLockGuard lock;
-        show_rating_buttons(false);
         GetHAL().onHeadPetGesture.clear();
         GetStackChan().clearModifiers();
         GetStackChan().resetAvatar();
@@ -247,40 +245,16 @@ void AppSameer::on_screen_tap()
         case State::Listening:
             _end_requested = true;  // the family can end the session early
             break;
+        case State::Live:
+            // Tapping while Hiwar talks cuts it short; tapping while it listens ends the call.
+            if (_robot_speaking) {
+                _interrupt_requested = true;
+            } else {
+                _end_requested = true;
+            }
+            break;
         default:
             break;
-    }
-}
-
-// Must be called with the LVGL lock held.
-void AppSameer::show_rating_buttons(bool show)
-{
-    _rating_buttons.clear();
-    _rating_panel.reset();
-    if (!show) {
-        return;
-    }
-
-    _rating_panel = std::make_unique<Container>(lv_screen_active());
-    _rating_panel->setSize(300, 84);
-    _rating_panel->align(LV_ALIGN_BOTTOM_MID, 0, -8);
-    _rating_panel->setBgOpa(0);
-    _rating_panel->setBorderWidth(0);
-    _rating_panel->setPaddingAll(0);
-
-    // 1 = ordinary, 2 = good, 3 = great: each button a little more gold.
-    const uint32_t colors[] = {0xF1E2A8, 0xE6C766, 0xD9B84A};
-    for (int value = 1; value <= 3; ++value) {
-        auto button = std::make_unique<Button>(_rating_panel->get());
-        button->setSize(84, 72);
-        button->align(LV_ALIGN_LEFT_MID, (value - 1) * 108, 0);
-        button->setBgColor(lv_color_hex(colors[value - 1]));
-        button->setRadius(18);
-        button->label().setText(std::to_string(value));
-        button->label().setTextFont(&lv_font_montserrat_24);
-        button->label().setTextColor(lv_color_hex(ThemeDark));
-        button->onClick().connect([this, value]() { _rating = value; });
-        _rating_buttons.push_back(std::move(button));
     }
 }
 
@@ -297,7 +271,8 @@ void AppSameer::session_task(void* arg)
         if (app->_start_requested.exchange(false)) {
             app->run_session();
             app->_state = State::Idle;
-            app->_end_requested = false;
+            app->_end_requested       = false;
+            app->_interrupt_requested = false;
             last_ping = xTaskGetTickCount();
         } else if (xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(KeepAliveMs)) {
             ping_server();
@@ -433,6 +408,32 @@ void AppSameer::run_session()
         GetStackChan().motion().moveWithSpeed(0, PitchThinking, 300);  // look up, thinking
     });
 
+    if (!run_live_session()) {
+        mclog::tagWarn(_tag, "live conversation unavailable, using turn-by-turn mode");
+        _state = State::Busy;
+        run_classic_session();
+    }
+}
+
+// A happy little nod as thanks, at the end of every session.
+void AppSameer::say_thanks()
+{
+    post_ui([]() {
+        GetStackChan().addModifier(std::make_unique<TimedEmotionModifier>(avatar::Emotion::Happy, 3000));
+        GetStackChan().motion().moveWithSpeed(0, PitchNodTop, 500);
+    });
+    vTaskDelay(pdMS_TO_TICKS(500));
+    post_ui([]() { GetStackChan().motion().moveWithSpeed(0, 30, 500); });
+    vTaskDelay(pdMS_TO_TICKS(500));
+    post_ui([]() {
+        GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400);
+        GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral);
+    });
+}
+
+// The older flow: one question, then each spoken turn is uploaded and answered (slower).
+void AppSameer::run_classic_session()
+{
     // 1. Start the session: the server picks the category and question.
     std::string response;
     if (post_json("/session_intro", "{}", response, IntroTimeoutMs) != 200) {
@@ -632,35 +633,576 @@ void AppSameer::run_session()
         post_json("/evaluate_session", to_json(body), response, RequestTimeoutMs);
     }
 
-    // 6. Rating 1-3 on the screen.
-    _rating = 0;
-    _state  = State::Rating;
-    post_ui([this]() {
-        GetStackChan().avatar().setEmotion(avatar::Emotion::Happy);
-        show_rating_buttons(true);
-    });
+    say_thanks();
+}
 
-    uint32_t asked = GetHAL().millis();
-    while (_rating == 0 && GetHAL().millis() - asked < RatingWaitMs) {
-        vTaskDelay(pdMS_TO_TICKS(50));
+/* -------------------------------------------------------------------------- */
+/*                         Live conversation (Gemini Live)                     */
+/* -------------------------------------------------------------------------- */
+
+namespace {
+
+constexpr int LiveInputRate      = 16000;  // what Gemini Live expects from the microphone
+constexpr int LiveOutputRate     = 24000;  // what Gemini Live speaks
+constexpr int LiveSetupTimeoutMs = 15000;
+constexpr int EchoTailMs         = 350;    // keep the mic muted this long after Hiwar stops talking
+constexpr int SilenceNudgeMs     = 25000;  // after this much quiet, Hiwar offers a new question
+constexpr int MaxNudges          = 3;
+constexpr int GoodbyeWaitMs      = 12000;
+constexpr int HeartbeatMs        = 8000;
+constexpr int MaxLiveMs          = 30 * 60 * 1000;
+constexpr int MaxReconnects      = 4;      // Gemini closes a connection every ~10 minutes
+
+constexpr const char* OpenNudge    = "[تنبيه] العائلة جاهزة الآن. ابدأ.";
+constexpr const char* SilenceNudge = "[تنبيه] صمتت العائلة قليلًا. اطرح سؤالًا خفيفًا جديدًا أو ادعُ أحدهم للمشاركة.";
+constexpr const char* GoodbyeNudge = "[تنبيه] انتهى وقت الجلسة. ودّع العائلة بجملة قصيرة واشكرهم.";
+
+std::string base64_encode(const void* data, size_t len)
+{
+    size_t out_len = 0;
+    mbedtls_base64_encode(nullptr, 0, &out_len, static_cast<const unsigned char*>(data), len);
+    std::string out(out_len, '\0');
+    if (mbedtls_base64_encode(reinterpret_cast<unsigned char*>(out.data()), out.size(), &out_len,
+                              static_cast<const unsigned char*>(data), len) != 0) {
+        return "";
     }
-    post_ui([this]() { show_rating_buttons(false); });
+    out.resize(out_len);
+    return out;
+}
 
-    if (_rating > 0) {
+std::vector<int16_t> base64_decode_pcm(const char* text)
+{
+    size_t text_len = std::strlen(text);
+    std::vector<int16_t> pcm((text_len / 4) * 3 / 2 + 2);
+    size_t out_len = 0;
+    if (mbedtls_base64_decode(reinterpret_cast<unsigned char*>(pcm.data()), pcm.size() * 2, &out_len,
+                              reinterpret_cast<const unsigned char*>(text), text_len) != 0) {
+        return {};
+    }
+    pcm.resize(out_len / 2);
+    return pcm;
+}
+
+// Linear resampling; good enough for speech between 16 and 24 kHz.
+std::vector<int16_t> resample(const int16_t* in, size_t frames, int stride, int from_rate, int to_rate)
+{
+    if (from_rate == to_rate && stride == 1) {
+        return std::vector<int16_t>(in, in + frames);
+    }
+    size_t out_frames = frames * to_rate / from_rate;
+    std::vector<int16_t> out(out_frames);
+    for (size_t i = 0; i < out_frames; ++i) {
+        float pos  = float(i) * from_rate / to_rate;
+        size_t a   = std::min(size_t(pos), frames - 1);
+        size_t b   = std::min(a + 1, frames - 1);
+        float frac = pos - a;
+        out[i]     = int16_t(in[a * stride] * (1 - frac) + in[b * stride] * frac);
+    }
+    return out;
+}
+
+std::string realtime_text(const char* text)
+{
+    cJSON* root  = cJSON_CreateObject();
+    cJSON* input = cJSON_AddObjectToObject(root, "realtimeInput");
+    cJSON_AddStringToObject(input, "text", text);
+    return to_json(root);
+}
+
+// State shared between the WebSocket callbacks, the playback task and the session loop.
+struct LiveCall {
+    std::unique_ptr<WebSocket> ws;
+    std::mutex mutex;  // guards the fields below marked (m)
+    std::deque<std::vector<int16_t>> playback;  // (m) Hiwar's voice, waiting to be played
+    std::string resume_handle;                  // (m) lets a dropped connection continue the conversation
+    std::string transcript;                     // (m) Hiwar's words in the current turn
+    std::string opening_question;               // (m) Hiwar's first turn, for the dashboard
+
+    std::atomic<bool> setup_done{false};
+    std::atomic<bool> connected{false};
+    std::atomic<bool> go_away{false};
+    std::atomic<bool> model_ended{false};     // Gemini called end_conversation
+    std::atomic<bool> model_talking{false};   // between the first audio of a turn and turnComplete
+    std::atomic<bool> playing{false};
+    std::atomic<bool> stop_playback{false};
+    std::atomic<bool> playback_done{false};
+    std::atomic<int> replies{0};
+    std::atomic<uint32_t> last_play_end{0};
+    std::atomic<uint32_t> last_turn_complete{0};
+
+    bool queue_empty()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return playback.empty();
+    }
+
+    void clear_playback()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        playback.clear();
+    }
+
+    bool send(const std::string& message)
+    {
+        return ws && connected && ws->Send(message);
+    }
+
+    // One server message: audio, transcription, turn markers, tool calls, resumption handles.
+    void on_message(const char* data, size_t len)
+    {
+        cJSON* root = cJSON_ParseWithLength(data, len);
+        if (root == nullptr) {
+            mclog::tagWarn(_tag, "live: unparsable message ({} bytes)", len);
+            return;
+        }
+        if (cJSON_GetObjectItemCaseSensitive(root, "setupComplete")) {
+            setup_done = true;
+        }
+
+        cJSON* content = cJSON_GetObjectItemCaseSensitive(root, "serverContent");
+        if (content) {
+            if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(content, "interrupted"))) {
+                clear_playback();  // someone spoke over Hiwar: stop talking right away
+                model_talking = false;
+            }
+            cJSON* turn  = cJSON_GetObjectItemCaseSensitive(content, "modelTurn");
+            cJSON* parts = turn ? cJSON_GetObjectItemCaseSensitive(turn, "parts") : nullptr;
+            cJSON* part  = nullptr;
+            cJSON_ArrayForEach(part, parts)
+            {
+                cJSON* inline_data = cJSON_GetObjectItemCaseSensitive(part, "inlineData");
+                cJSON* b64         = inline_data ? cJSON_GetObjectItemCaseSensitive(inline_data, "data") : nullptr;
+                if (cJSON_IsString(b64) && b64->valuestring) {
+                    auto pcm = base64_decode_pcm(b64->valuestring);
+                    if (!pcm.empty()) {
+                        model_talking = true;
+                        std::lock_guard<std::mutex> lock(mutex);
+                        playback.push_back(std::move(pcm));
+                    }
+                }
+            }
+            cJSON* said = cJSON_GetObjectItemCaseSensitive(content, "outputTranscription");
+            cJSON* text = said ? cJSON_GetObjectItemCaseSensitive(said, "text") : nullptr;
+            if (cJSON_IsString(text) && text->valuestring) {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (transcript.size() < 600) {
+                    transcript += text->valuestring;
+                }
+            }
+            if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(content, "turnComplete"))) {
+                model_talking      = false;
+                last_turn_complete = GetHAL().millis();
+                ++replies;
+                std::lock_guard<std::mutex> lock(mutex);
+                if (opening_question.empty() && !transcript.empty()) {
+                    opening_question = transcript;
+                }
+                transcript.clear();
+            }
+        }
+
+        cJSON* tool_call = cJSON_GetObjectItemCaseSensitive(root, "toolCall");
+        cJSON* calls     = tool_call ? cJSON_GetObjectItemCaseSensitive(tool_call, "functionCalls") : nullptr;
+        cJSON* call      = nullptr;
+        cJSON_ArrayForEach(call, calls)
+        {
+            std::string name = json_string(call, "name");
+            std::string id   = json_string(call, "id");
+            if (name == "end_conversation") {
+                model_ended = true;
+            }
+            cJSON* reply     = cJSON_CreateObject();
+            cJSON* responses = cJSON_AddArrayToObject(cJSON_AddObjectToObject(reply, "toolResponse"), "functionResponses");
+            cJSON* response  = cJSON_CreateObject();
+            cJSON_AddStringToObject(response, "id", id.c_str());
+            cJSON_AddStringToObject(response, "name", name.c_str());
+            cJSON_AddStringToObject(cJSON_AddObjectToObject(response, "response"), "result", "ok");
+            cJSON_AddItemToArray(responses, response);
+            send(to_json(reply));
+        }
+
+        cJSON* resumption = cJSON_GetObjectItemCaseSensitive(root, "sessionResumptionUpdate");
+        if (resumption && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(resumption, "resumable"))) {
+            std::string handle = json_string(resumption, "newHandle");
+            if (!handle.empty()) {
+                std::lock_guard<std::mutex> lock(mutex);
+                resume_handle = handle;
+            }
+        }
+        if (cJSON_GetObjectItemCaseSensitive(root, "goAway")) {
+            go_away = true;  // Gemini will close this connection soon: reconnect and resume
+        }
+        cJSON_Delete(root);
+    }
+};
+
+struct PlaybackArgs {
+    LiveCall* call;
+    std::function<void(uint32_t)> on_speaking;
+};
+
+// Plays Hiwar's voice as soon as each piece arrives, while the session loop keeps listening.
+void playback_task(void* arg)
+{
+    auto* args     = static_cast<PlaybackArgs*>(arg);
+    LiveCall& call = *args->call;
+    auto codec     = Board::GetInstance().GetAudioCodec();
+    const int rate = codec->output_sample_rate();
+    uint32_t animated_until = 0;
+
+    while (!call.stop_playback) {
+        std::vector<int16_t> chunk;
+        {
+            std::lock_guard<std::mutex> lock(call.mutex);
+            if (!call.playback.empty()) {
+                chunk = std::move(call.playback.front());
+                call.playback.pop_front();
+            }
+        }
+        if (chunk.empty()) {
+            if (call.playing) {
+                call.playing       = false;
+                call.last_play_end = GetHAL().millis();
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        call.playing = true;
+        if (rate != LiveOutputRate) {
+            chunk = resample(chunk.data(), chunk.size(), 1, LiveOutputRate, rate);
+        }
+        uint32_t now = GetHAL().millis();
+        if (now + 300 >= animated_until) {
+            uint32_t ms = 1200;
+            args->on_speaking(ms);
+            animated_until = now + ms;
+        }
+        codec->OutputData(chunk);  // blocks for about the chunk's duration
+    }
+    call.playing       = false;
+    call.playback_done = true;
+    vTaskDelete(nullptr);
+}
+
+struct Heartbeat {
+    std::string body;
+    std::atomic<bool>* busy;
+};
+
+void heartbeat_task(void* arg)
+{
+    auto* beat = static_cast<Heartbeat*>(arg);
+    std::string response;
+    post_json("/live/heartbeat", beat->body, response, 15000);
+    *beat->busy = false;
+    delete beat;
+    vTaskDelete(nullptr);
+}
+
+}  // namespace
+
+bool AppSameer::run_live_session()
+{
+    // 1. The server picks the topic and hands out a short-lived Gemini token for this conversation.
+    std::string response;
+    if (post_json("/live/start", "{}", response, IntroTimeoutMs) != 200) {
+        return false;
+    }
+    cJSON* started = cJSON_Parse(response.c_str());
+    if (started == nullptr) {
+        return false;
+    }
+    std::string session_id = json_string(started, "session_id");
+    std::string ws_url     = json_string(started, "ws_url");
+    std::string token      = json_string(started, "token");
+    cJSON* setup           = cJSON_DetachItemFromObjectCaseSensitive(started, "setup");
+    cJSON_Delete(started);
+    if (session_id.empty() || ws_url.empty() || setup == nullptr) {
+        cJSON_Delete(setup);
+        return false;
+    }
+    mclog::tagInfo(_tag, "live session {}", session_id);
+
+    LiveCall call;
+    auto connect = [&]() -> bool {
+        call.setup_done = false;
+        call.connected  = false;
+        call.go_away    = false;
+        if (call.ws) {
+            call.ws->OnData(nullptr);
+            call.ws->OnDisconnected(nullptr);
+            call.ws->Close();
+        }
+        call.ws = Board::GetInstance().GetNetwork()->CreateWebSocket(1);
+        if (!call.ws) {
+            return false;
+        }
+        call.ws->SetHeader("Authorization", ("Token " + token).c_str());
+        call.ws->SetReceiveBufferSize(16 * 1024);
+        call.ws->OnData([&call](const char* data, size_t len, bool) { call.on_message(data, len); });
+        call.ws->OnDisconnected([&call]() {
+            mclog::tagWarn(_tag, "live: disconnected");
+            call.connected = false;
+        });
+        if (!call.ws->Connect(ws_url.c_str())) {
+            mclog::tagError(_tag, "live: could not connect");
+            return false;
+        }
+        call.connected = true;
+
+        // Resume where the conversation left off, if Gemini gave us a handle.
+        cJSON* message = cJSON_Duplicate(setup, true);
+        cJSON* body    = cJSON_GetObjectItemCaseSensitive(message, "setup");
+        {
+            std::lock_guard<std::mutex> lock(call.mutex);
+            if (body && !call.resume_handle.empty()) {
+                cJSON_DeleteItemFromObjectCaseSensitive(body, "sessionResumption");
+                cJSON_AddStringToObject(cJSON_AddObjectToObject(body, "sessionResumption"), "handle",
+                                        call.resume_handle.c_str());
+            }
+        }
+        call.send(to_json(message));
+
+        uint32_t asked = GetHAL().millis();
+        while (!call.setup_done && call.connected && GetHAL().millis() - asked < LiveSetupTimeoutMs) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        if (!call.setup_done) {
+            mclog::tagError(_tag, "live: setup was not accepted");
+            return false;
+        }
+        return true;
+    };
+
+    if (!connect()) {
+        if (call.ws) {
+            call.ws->Close();
+        }
+        cJSON_Delete(setup);
+        return false;
+    }
+
+    // 2. Speaker and microphone run at the same time; the playback task speaks as audio arrives.
+    auto codec = Board::GetInstance().GetAudioCodec();
+    codec->EnableOutput(true);
+    codec->EnableInput(true);
+    auto* playback_args = new PlaybackArgs{&call, [this](uint32_t ms) {
+                                               post_ui([ms]() {
+                                                   GetStackChan().addModifier(std::make_unique<SpeakingModifier>(ms));
+                                               });
+                                           }};
+    xTaskCreatePinnedToCore(playback_task, "hiwar_play", 8 * 1024, playback_args, 5, nullptr, 0);
+
+    _state = State::Live;
+    post_ui([]() {
+        GetStackChan().avatar().setEmotion(avatar::Emotion::Happy);
+        GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400);
+    });
+    call.send(realtime_text(OpenNudge));  // Hiwar greets the family and asks the first question
+
+    const int in_rate      = codec->input_sample_rate();
+    const int channels     = std::max(codec->input_channels(), 1);
+    const int chunk_frames = in_rate * ChunkMs / 1000;
+    std::vector<int16_t> buffer(chunk_frames * channels);
+
+    uint32_t start          = GetHAL().millis();
+    uint32_t last_voice     = start;
+    uint32_t last_beat      = start;
+    uint32_t talk_ms        = 0;
+    uint32_t heard_ms       = 0;  // time the mic was open (Hiwar not talking)
+    float noise_floor       = 0;
+    int calibration_chunks  = 0;
+    int turns               = 0;  // the family's spoken turns, counted on the device
+    int turn_voiced_ms      = 0;
+    bool in_turn            = false;
+    int nudges              = 0;
+    int reconnects          = 0;
+    bool was_speaking       = false;
+    bool saying_goodbye     = false;
+    uint32_t goodbye_asked  = 0;
+    bool question_sent      = false;
+    std::atomic<bool> beat_busy{false};
+
+    auto send_heartbeat = [&](bool wait) {
         cJSON* body = cJSON_CreateObject();
         cJSON_AddStringToObject(body, "session_id", session_id.c_str());
-        cJSON_AddNumberToObject(body, "rating", _rating.load());
-        post_json("/save_rating", to_json(body), response, RequestTimeoutMs);
+        cJSON_AddNumberToObject(body, "turns", turns);
+        cJSON_AddNumberToObject(body, "replies", call.replies.load());
+        {
+            std::lock_guard<std::mutex> lock(call.mutex);
+            if (!question_sent && !call.opening_question.empty()) {
+                cJSON_AddStringToObject(body, "question", call.opening_question.c_str());
+                question_sent = true;
+            }
+        }
+        if (wait) {
+            std::string ignored;
+            post_json("/live/heartbeat", to_json(body), ignored, 15000);
+            return;
+        }
+        if (beat_busy.exchange(true)) {
+            cJSON_Delete(body);
+            return;
+        }
+        // HTTP blocks for a moment, so it runs on its own task: the microphone never pauses.
+        auto* beat = new Heartbeat{to_json(body), &beat_busy};
+        if (xTaskCreate(heartbeat_task, "hiwar_beat", 6 * 1024, beat, 3, nullptr) != pdPASS) {
+            delete beat;
+            beat_busy = false;
+        }
+    };
 
-        // A happy little nod as thanks.
-        post_ui([]() {
-            GetStackChan().addModifier(std::make_unique<TimedEmotionModifier>(avatar::Emotion::Happy, 3000));
-            GetStackChan().motion().moveWithSpeed(0, PitchNodTop, 500);
-        });
-        vTaskDelay(pdMS_TO_TICKS(500));
-        post_ui([]() { GetStackChan().motion().moveWithSpeed(0, 30, 500); });
-        vTaskDelay(pdMS_TO_TICKS(500));
-        post_ui([]() { GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400); });
+    while (true) {
+        uint32_t now = GetHAL().millis();
+
+        // 3. Keep the connection alive: Gemini asks us to reconnect every ~10 minutes.
+        if (call.go_away || !call.connected) {
+            if (reconnects >= MaxReconnects || saying_goodbye || call.model_ended) {
+                break;
+            }
+            ++reconnects;
+            mclog::tagInfo(_tag, "live: reconnecting ({})", reconnects);
+            if (!connect()) {
+                break;
+            }
+        }
+
+        // 4. How the conversation ends: Hiwar said goodbye, the family tapped, or time ran out.
+        if (call.model_ended && !call.model_talking && !call.playing && call.queue_empty()) {
+            break;
+        }
+        if (_end_requested.exchange(false) && !saying_goodbye) {
+            saying_goodbye = true;
+            goodbye_asked  = now;
+            call.send(realtime_text(GoodbyeNudge));
+        }
+        if (!saying_goodbye && now - start >= MaxLiveMs) {
+            saying_goodbye = true;
+            goodbye_asked  = now;
+            call.send(realtime_text(GoodbyeNudge));
+        }
+        if (saying_goodbye) {
+            bool said_it = call.last_turn_complete > goodbye_asked && !call.playing && call.queue_empty();
+            if (said_it || now - goodbye_asked >= GoodbyeWaitMs) {
+                break;
+            }
+        }
+        if (_interrupt_requested.exchange(false)) {
+            call.clear_playback();  // tap while Hiwar talks: stop and listen
+        }
+
+        if (!codec->InputData(buffer)) {
+            vTaskDelay(pdMS_TO_TICKS(ChunkMs));
+            continue;
+        }
+
+        // 5. Half duplex: while Hiwar talks (and a moment after), the mic isn't sent, so it never
+        //    hears itself through its own speaker. A tap on the screen cuts Hiwar short.
+        bool speaking = call.playing || !call.queue_empty() || now - call.last_play_end < EchoTailMs;
+        if (speaking != was_speaking) {
+            was_speaking    = speaking;
+            _robot_speaking = speaking;
+            if (speaking) {
+                GetHAL().showRgbColor(0, 0, 0);
+            } else {
+                GetHAL().showRgbColor(0x60, 0x48, 0x08);  // soft gold: Hiwar is listening
+            }
+        }
+        if (speaking) {
+            last_voice = now;  // Hiwar talking isn't silence
+            in_turn    = false;
+            continue;
+        }
+        heard_ms += ChunkMs;
+
+        double sum = 0;
+        for (int i = 0; i < chunk_frames; ++i) {
+            double s = buffer[i * channels];
+            sum += s * s;
+        }
+        float rms = std::sqrt(sum / chunk_frames);
+        if (calibration_chunks < 10) {
+            noise_floor = calibration_chunks == 0 ? rms : std::min(noise_floor, rms);
+            ++calibration_chunks;
+        }
+        bool voiced = rms > std::max(noise_floor * VoiceOverNoise, (float)MinVoiceRms);
+        if (!voiced) {
+            noise_floor = noise_floor * 0.98f + rms * 0.02f;
+        }
+
+        // Count the family's turns for the dashboard (numbers only).
+        if (voiced) {
+            last_voice = now;
+            talk_ms += ChunkMs;
+            turn_voiced_ms += ChunkMs;
+            in_turn = true;
+        } else if (in_turn && now - last_voice >= TurnEndSilenceMs) {
+            if (turn_voiced_ms >= MinTurnSpeechMs) {
+                ++turns;
+                nudges = 0;
+            }
+            in_turn        = false;
+            turn_voiced_ms = 0;
+        }
+
+        auto pcm = resample(buffer.data(), chunk_frames, channels, in_rate, LiveInputRate);
+        cJSON* message = cJSON_CreateObject();
+        cJSON* audio   = cJSON_AddObjectToObject(cJSON_AddObjectToObject(message, "realtimeInput"), "audio");
+        cJSON_AddStringToObject(audio, "data", base64_encode(pcm.data(), pcm.size() * 2).c_str());
+        cJSON_AddStringToObject(audio, "mimeType", "audio/pcm;rate=16000");
+        call.send(to_json(message));
+
+        // 6. A long quiet moment: Hiwar offers something new, and after a few tries says goodbye.
+        if (!saying_goodbye && !call.model_talking && now - last_voice >= SilenceNudgeMs) {
+            last_voice = now;
+            if (nudges >= MaxNudges) {
+                saying_goodbye = true;
+                goodbye_asked  = now;
+                call.send(realtime_text(GoodbyeNudge));
+            } else {
+                ++nudges;
+                call.send(realtime_text(SilenceNudge));
+            }
+        }
+
+        if (now - last_beat >= HeartbeatMs) {
+            last_beat = now;
+            send_heartbeat(false);
+        }
     }
-    post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral); });
+
+    // 7. Hang up, then report the numbers so the dashboard fills in.
+    _state          = State::Busy;
+    _robot_speaking = false;
+    call.stop_playback = true;
+    while (!call.playback_done) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    delete playback_args;
+    if (call.ws) {
+        call.ws->OnData(nullptr);
+        call.ws->OnDisconnected(nullptr);
+        call.ws->Close();
+    }
+    call.connected = false;
+    codec->EnableInput(false);
+    codec->EnableOutput(false);
+    GetHAL().showRgbColor(0, 0, 0);
+    cJSON_Delete(setup);
+
+    while (beat_busy) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    send_heartbeat(true);
+    {
+        cJSON* body = cJSON_CreateObject();
+        cJSON_AddStringToObject(body, "session_id", session_id.c_str());
+        cJSON_AddNumberToObject(body, "duration_seconds", (GetHAL().millis() - start) / 1000);
+        cJSON_AddNumberToObject(body, "silence_seconds", (heard_ms > talk_ms ? heard_ms - talk_ms : 0) / 1000);
+        cJSON_AddItemToObject(body, "speakers", cJSON_CreateArray());
+        post_json("/evaluate_session", to_json(body), response, RequestTimeoutMs);
+    }
+    mclog::tagInfo(_tag, "live session done: {} turns, {} replies", turns, call.replies.load());
+    say_thanks();
+    return true;
 }
