@@ -650,6 +650,7 @@ constexpr int LiveInputRate      = 16000;  // what Gemini Live expects from the 
 constexpr int LiveOutputRate     = 24000;  // what Gemini Live speaks
 constexpr int LiveSetupTimeoutMs = 15000;
 constexpr int EchoTailMs         = 350;    // keep the mic muted this long after Hiwar stops talking
+constexpr int ExpressionHoldMs   = 6000;   // how long an expression lasts before relaxing
 constexpr int SilenceNudgeMs     = 45000;  // after this much quiet, Hiwar offers something new
 constexpr int MaxNudges          = 3;      // then says goodbye after one more quiet spell
 constexpr int GoodbyeWaitMs      = 12000;
@@ -748,6 +749,8 @@ struct LiveCall {
     std::atomic<uint32_t> last_play_end{0};
     std::atomic<uint32_t> last_turn_complete{0};
     std::atomic<uint32_t> last_heard{0};  // Gemini heard someone speak (more reliable than loudness)
+    std::atomic<uint32_t> emotion_until{0};  // when Hiwar's current expression relaxes back to neutral
+    std::function<void(const std::string&, const std::string&)> on_express;  // emotion, gesture
 
     bool queue_empty()
     {
@@ -888,12 +891,24 @@ struct LiveCall {
                     topics.push_back(topic);
                 }
             }
+            bool silent = false;
+            if (name == "express") {
+                // Non-blocking: Hiwar keeps talking while the face changes.
+                if (on_express) {
+                    on_express(json_string(args, "emotion"), json_string(args, "gesture"));
+                }
+                silent = true;
+            }
             cJSON* reply     = cJSON_CreateObject();
             cJSON* responses = cJSON_AddArrayToObject(cJSON_AddObjectToObject(reply, "toolResponse"), "functionResponses");
             cJSON* response  = cJSON_CreateObject();
             cJSON_AddStringToObject(response, "id", id.c_str());
             cJSON_AddStringToObject(response, "name", name.c_str());
-            cJSON_AddStringToObject(cJSON_AddObjectToObject(response, "response"), "result", "ok");
+            cJSON* result = cJSON_AddObjectToObject(response, "response");
+            cJSON_AddStringToObject(result, "result", "ok");
+            if (silent) {
+                cJSON_AddStringToObject(result, "scheduling", "SILENT");  // nothing for Hiwar to say about it
+            }
             cJSON_AddItemToArray(responses, response);
             send(to_json(reply));
         }
@@ -912,6 +927,31 @@ struct LiveCall {
         cJSON_Delete(root);
     }
 };
+
+// Runs a short sequence (a nod, a head shake) without blocking the caller.
+void run_task(std::function<void()> fn)
+{
+    auto* job = new std::function<void()>(std::move(fn));
+    auto entry = [](void* arg) {
+        auto* f = static_cast<std::function<void()>*>(arg);
+        (*f)();
+        delete f;
+        vTaskDelete(nullptr);
+    };
+    if (xTaskCreate(entry, "hiwar_move", 4 * 1024, job, 3, nullptr) != pdPASS) {
+        delete job;
+    }
+}
+
+avatar::Emotion emotion_from(const std::string& name)
+{
+    if (name == "happy") return avatar::Emotion::Happy;
+    if (name == "sad") return avatar::Emotion::Sad;
+    if (name == "doubt") return avatar::Emotion::Doubt;
+    if (name == "sleepy") return avatar::Emotion::Sleepy;
+    if (name == "angry") return avatar::Emotion::Angry;
+    return avatar::Emotion::Neutral;
+}
 
 struct PlaybackArgs {
     LiveCall* call;
@@ -1075,6 +1115,39 @@ bool AppSameer::run_live_session()
         GetStackChan().avatar().setEmotion(avatar::Emotion::Happy);
         GetStackChan().motion().moveWithSpeed(0, PitchFacingFamily, 400);
     });
+    // Gemini picks Hiwar's expression as it talks; the face relaxes to neutral after a few seconds.
+    std::atomic<bool> gesturing{false};
+    call.on_express = [this, &call, &gesturing](const std::string& emotion, const std::string& gesture) {
+        avatar::Emotion face = emotion_from(emotion);
+        post_ui([face]() { GetStackChan().avatar().setEmotion(face); });
+        call.emotion_until = GetHAL().millis() + ExpressionHoldMs;
+        if (gesture.empty() || gesture == "none" || gesturing.exchange(true)) {
+            return;
+        }
+        run_task([this, gesture, &gesturing]() {
+            auto move = [this](int yaw, int pitch, int speed) {
+                post_ui([yaw, pitch, speed]() { GetStackChan().motion().moveWithSpeed(yaw, pitch, speed); });
+            };
+            if (gesture == "nod") {
+                move(0, PitchNodTop, 600);
+                vTaskDelay(pdMS_TO_TICKS(350));
+                move(0, PitchFacingFamily - 60, 600);
+                vTaskDelay(pdMS_TO_TICKS(350));
+            } else if (gesture == "shake") {
+                for (int i = 0; i < 2; ++i) {
+                    move(-180, PitchFacingFamily, 700);
+                    vTaskDelay(pdMS_TO_TICKS(280));
+                    move(180, PitchFacingFamily, 700);
+                    vTaskDelay(pdMS_TO_TICKS(280));
+                }
+            } else if (gesture == "tilt") {
+                move(140, PitchFacingFamily + 60, 400);
+                vTaskDelay(pdMS_TO_TICKS(1200));
+            }
+            move(0, PitchFacingFamily, 400);
+            gesturing = false;
+        });
+    };
     call.send(realtime_text(OpenNudge));  // Hiwar greets the family and asks the first question
 
     const int in_rate      = codec->input_sample_rate();
@@ -1188,6 +1261,11 @@ bool AppSameer::run_live_session()
                 break;
             }
         }
+        uint32_t relax = call.emotion_until;
+        if (relax != 0 && now >= relax) {
+            call.emotion_until = 0;
+            post_ui([]() { GetStackChan().avatar().setEmotion(avatar::Emotion::Neutral); });
+        }
         if (_interrupt_requested.exchange(false)) {
             call.clear_playback();  // tap while Hiwar talks: stop and listen
         }
@@ -1288,10 +1366,14 @@ bool AppSameer::run_live_session()
     }
     delete playback_args;
     if (call.ws) {
-        call.ws->OnData(nullptr);
+        call.ws->OnData(nullptr);  // no more messages, so no new expressions
         call.ws->OnDisconnected(nullptr);
         call.ws->Close();
     }
+    while (gesturing) {
+        vTaskDelay(pdMS_TO_TICKS(20));  // let a head movement finish before its state goes away
+    }
+    call.on_express = nullptr;
     call.connected = false;
     codec->EnableInput(false);
     codec->EnableOutput(false);

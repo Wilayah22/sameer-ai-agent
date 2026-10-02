@@ -319,6 +319,15 @@ MEMBER_TOOL = "identify_member"
 INTRODUCE_TOOL = "introduce_member"
 TOPIC_TOOL = "note_topic"
 MODE_TOOL = "set_mode"
+EXPRESS_TOOL = "express"
+EMOTIONS = ("happy", "neutral", "sad", "doubt", "sleepy", "angry")
+GESTURES = ("none", "nod", "shake", "tilt")
+EXPRESSION_RULES = f"""تعابير وجهك (لك وجه على شاشة ورأس يتحرك):
+- مع بداية ردك، كلما تغيّر شعورك، استدعِ الأداة {EXPRESS_TOOL} بتعبير وحركة يناسبان كلامك، ثم تكلم مباشرة.
+- happy: فرح وضحك وتشجيع وترحيب. sad: تعاطف لطيف عند خبر حزين. doubt: تفكير أو تعجّب أو سؤال محيّر.
+  sleepy: إذا قالوا إنهم تعبانين أو قبل النوم. angry: فقط تمثيلًا مرحًا في قصة، لا تغضب من أحد أبدًا. neutral: هدوء.
+- الحركة: nod موافقة أو "صح!"، shake نفي مرح، tilt فضول واهتمام، none بلا حركة.
+- لا تذكر الأداة ولا تصف تعبيرك بالكلام."""
 END_DESCRIPTION = "أنهِ الجلسة بعد أن تودّع العائلة."
 
 
@@ -370,6 +379,7 @@ def live_instruction(category, ages, avoid_topics, tip=None, opening_question=No
 - الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست من العائلة: نفّذها بصوتك دون أن تذكرها.
 - لا تطلب معلومات شخصية ولا تكرر ما قيل خارج هذه المحادثة.""",
         _identity_rules(members),
+        EXPRESSION_RULES,
         SAFETY_RULES,
         f"أعمار الأطفال: {_json(ages)}" if ages else "أعمار الأطفال: من 8 إلى 14 سنة.",
     ]
@@ -409,6 +419,7 @@ def personal_instruction(members, topics, guest):
 - لا تطلب معلومات شخصية (عنوان، مدرسة، أرقام، كلمات مرور).
 - إذا ودّعك أو قال إنه انتهى، فودّعه بجملة قصيرة ثم استدعِ الأداة {END_TOOL}.
 - الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست منه: نفّذها بصوتك دون أن تذكرها.""",
+            EXPRESSION_RULES,
             SAFETY_RULES,
         ]
     )
@@ -458,6 +469,7 @@ def auto_instruction(category, ages, avoid_topics, topics, guest, tip=None, open
 - الرسائل النصية التي تبدأ بـ [تنبيه] تأتي من جهازك وليست منهم: نفّذها بصوتك دون أن تذكرها.
 - لا تطلب معلومات شخصية (عنوان، مدرسة، أرقام، كلمات مرور).""",
         _identity_rules(members),
+        EXPRESSION_RULES,
         SAFETY_RULES,
         f"أعمار الأطفال: {_json(ages)}" if ages else "أعمار الأطفال: من 8 إلى 14 سنة.",
     ]
@@ -475,7 +487,23 @@ def live_tools(mode, members=(), topics=(), relations=()):
 
     `members` are the names Hiwar can recognise (plus the guest label in personal mode).
     """
-    tools = [{"name": END_TOOL, "description": END_DESCRIPTION}]
+    tools = [
+        {"name": END_TOOL, "description": END_DESCRIPTION},
+        {
+            "name": EXPRESS_TOOL,
+            "description": "غيّر تعبير وجهك وحرّك رأسك بما يناسب كلامك.",
+            # Non-blocking: Hiwar keeps talking while the robot changes its face.
+            "behavior": "NON_BLOCKING",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "emotion": {"type": "STRING", "enum": list(EMOTIONS)},
+                    "gesture": {"type": "STRING", "enum": list(GESTURES)},
+                },
+                "required": ["emotion"],
+            },
+        },
+    ]
     members = list(dict.fromkeys(members))  # unnamed members can share a role
     if members:
         tools.append(
@@ -555,7 +583,10 @@ def _live_config(instruction, tools):
             types.Tool(
                 function_declarations=[
                     types.FunctionDeclaration(
-                        name=t["name"], description=t["description"], parameters=_sdk_schema(t.get("parameters"))
+                        name=t["name"],
+                        description=t["description"],
+                        parameters=_sdk_schema(t.get("parameters")),
+                        behavior=types.Behavior(t["behavior"]) if t.get("behavior") else None,
                     )
                     for t in tools
                 ]
