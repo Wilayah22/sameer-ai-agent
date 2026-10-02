@@ -178,9 +178,14 @@ void AppSameer::onOpen()
     LvglLockGuard lock;
     loading_page.reset();
 
-    auto avatar = std::make_unique<avatar::DefaultAvatar>();
+    // Hiwar's own face: 24 expressions (hiwar_face.cpp) instead of the default dot eyes.
+    auto avatar = std::make_unique<hiwar::HiwarAvatar>();
     avatar->init(lv_screen_active());
-    avatar->getPanel()->onClick().connect([this]() { on_screen_tap(); });
+    lv_obj_add_event_cb(
+        avatar->panel(),
+        [](lv_event_t* e) { static_cast<AppSameer*>(lv_event_get_user_data(e))->on_screen_tap(); },
+        LV_EVENT_CLICKED, this);
+    _face = avatar.get();
     GetStackChan().attachAvatar(std::move(avatar));
 
     GetStackChan().addModifier(std::make_unique<BlinkModifier>());
@@ -226,6 +231,7 @@ void AppSameer::onClose()
         LvglLockGuard lock;
         GetHAL().onHeadPetGesture.clear();
         GetStackChan().clearModifiers();
+        _face = nullptr;
         GetStackChan().resetAvatar();
         view::destroy_home_indicator();
         view::destroy_status_bar();
@@ -948,14 +954,15 @@ void run_task(std::function<void()> fn)
     }
 }
 
-avatar::Emotion emotion_from(const std::string& name)
+// One of Hiwar's 24 expressions by name ("happy", "looking_around"); "doubt" is the old "thinking".
+hiwar::Expression expression_from(const std::string& name)
 {
-    if (name == "happy") return avatar::Emotion::Happy;
-    if (name == "sad") return avatar::Emotion::Sad;
-    if (name == "doubt") return avatar::Emotion::Doubt;
-    if (name == "sleepy") return avatar::Emotion::Sleepy;
-    if (name == "angry") return avatar::Emotion::Angry;
-    return avatar::Emotion::Neutral;
+    hiwar::Expression expression = hiwar::Expression::Neutral;
+    if (name == "doubt") {
+        return hiwar::Expression::Thinking;
+    }
+    hiwar::expression_from_name(name, expression);
+    return expression;
 }
 
 struct PlaybackArgs {
@@ -1126,8 +1133,12 @@ bool AppSameer::run_live_session()
     // Gemini picks Hiwar's expression as it talks; the face relaxes to neutral after a few seconds.
     std::atomic<bool> gesturing{false};
     call.on_express = [this, &call, &gesturing](const std::string& emotion, const std::string& gesture) {
-        avatar::Emotion face = emotion_from(emotion);
-        post_ui([face]() { GetStackChan().avatar().setEmotion(face); });
+        hiwar::Expression face = expression_from(emotion);
+        post_ui([this, face]() {
+            if (_face) {
+                _face->setExpression(face);
+            }
+        });
         call.emotion_until = GetHAL().millis() + ExpressionHoldMs;
         if (gesture.empty() || gesture == "none" || gesturing.exchange(true)) {
             return;
