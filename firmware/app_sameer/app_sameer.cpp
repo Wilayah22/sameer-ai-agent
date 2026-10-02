@@ -36,6 +36,7 @@ namespace {
 constexpr uint32_t ThemeColor = 0xD9B84A;  // Sameer gold
 constexpr uint32_t ThemeDark  = 0x0A1930;  // Sameer navy
 
+constexpr int SpeakerVolume     = 100;
 constexpr int IntroTimeoutMs    = 90000;  // first request may wake a sleeping free Render instance
 constexpr int RequestTimeoutMs  = 30000;
 constexpr int KeepAliveMs       = 10 * 60 * 1000;  // free Render sleeps after 15 idle minutes
@@ -159,6 +160,9 @@ void AppSameer::onCreate()
 void AppSameer::onOpen()
 {
     mclog::tagInfo(_tag, "on open, server: {}", CONFIG_SAMEER_SERVER_URL);
+
+    // Hiwar talks to a whole table: speaker at full volume (the firmware default is 70).
+    Board::GetInstance().GetAudioCodec()->SetOutputVolume(SpeakerVolume);
 
     std::unique_ptr<view::LoadingPage> loading_page;
     {
@@ -651,6 +655,7 @@ constexpr int LiveOutputRate     = 24000;  // what Gemini Live speaks
 constexpr int LiveSetupTimeoutMs = 15000;
 constexpr int EchoTailMs         = 350;    // keep the mic muted this long after Hiwar stops talking
 constexpr int ExpressionHoldMs   = 6000;   // how long an expression lasts before relaxing
+constexpr float VoiceGain        = 1.4f;   // Gemini speaks softly; boost, clamped so it never clips
 constexpr int SilenceNudgeMs     = 45000;  // after this much quiet, Hiwar offers something new
 constexpr int MaxNudges          = 3;      // then says goodbye after one more quiet spell
 constexpr int GoodbyeWaitMs      = 12000;
@@ -987,6 +992,9 @@ void playback_task(void* arg)
         call.playing = true;
         if (rate != LiveOutputRate) {
             chunk = resample(chunk.data(), chunk.size(), 1, LiveOutputRate, rate);
+        }
+        for (auto& sample : chunk) {
+            sample = int16_t(std::clamp(int(sample * VoiceGain), -32767, 32767));
         }
         uint32_t now = GetHAL().millis();
         if (now + 300 >= animated_until) {
