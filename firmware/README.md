@@ -16,6 +16,9 @@ It works like a voice call:
    invites quiet members in). Personal: a one-to-one chat, learning help, stories and games, or
    reflecting on the day. After 45 s of silence it offers something new, and only after several
    quiet spells in a row does it say goodbye. A call can last up to an hour.
+   Hiwar's face follows the conversation: Gemini calls `express` (non-blocking, so speech isn't
+   delayed) with an emotion (happy, sad, doubt, sleepy, neutral; angry only playfully in stories)
+   and a head gesture (nod, shake, tilt). The face relaxes to neutral after a few seconds.
 4. While Hiwar talks the microphone isn't sent (so it never hears itself). Tap while it talks to cut
    it short; tap while it listens to end the call. It also ends when the family says goodbye
    (Gemini calls `end_conversation`), after a long silence, or after an hour.
