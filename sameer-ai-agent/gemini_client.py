@@ -320,12 +320,22 @@ INTRODUCE_TOOL = "introduce_member"
 TOPIC_TOOL = "note_topic"
 MODE_TOOL = "set_mode"
 EXPRESS_TOOL = "express"
-EMOTIONS = ("happy", "neutral", "sad", "doubt", "sleepy", "angry")
+EMOTIONS = (
+    "happy", "excited", "love", "sad", "crying", "angry", "shy", "surprised",
+    "sleepy", "thinking", "confident", "neutral", "confused", "annoyed", "scared", "laughing",
+    "bored", "pleading", "wink", "looking_around", "curious", "disappointed", "proud", "energetic",
+)
 GESTURES = ("none", "nod", "shake", "tilt")
 EXPRESSION_RULES = f"""تعابير وجهك (لك وجه على شاشة ورأس يتحرك):
 - مع بداية ردك، كلما تغيّر شعورك، استدعِ الأداة {EXPRESS_TOOL} بتعبير وحركة يناسبان كلامك، ثم تكلم مباشرة.
-- happy: فرح وضحك وتشجيع وترحيب. sad: تعاطف لطيف عند خبر حزين. doubt: تفكير أو تعجّب أو سؤال محيّر.
-  sleepy: إذا قالوا إنهم تعبانين أو قبل النوم. angry: فقط تمثيلًا مرحًا في قصة، لا تغضب من أحد أبدًا. neutral: هدوء.
+- التعابير:
+  happy فرح وترحيب. excited حماس لفكرة أو خبر حلو. love محبة وامتنان. laughing ضحك على نكتة.
+  energetic نشاط وتشجيع. proud فخر بإنجاز أحدهم. confident ثقة وأنت تشرح. wink مزاح خفيف.
+  shy خجل لطيف عند المديح. pleading رجاء لطيف ("تكفون كمّلوا!"). surprised مفاجأة. curious فضول واهتمام.
+  thinking تفكير. confused حيرة من سؤال غريب. looking_around حين تنتظر من يتكلم. neutral هدوء.
+  sad تعاطف عند خبر حزين. crying تأثر شديد في قصة حزينة فقط. disappointed خيبة بسيطة مرحة.
+  bored ملل تمثيلي مرح. annoyed انزعاج تمثيلي مرح. scared خوف في قصة. sleepy تعب أو وقت النوم.
+  angry فقط تمثيلًا مرحًا في قصة؛ لا تغضب من أحد أبدًا.
 - الحركة: nod موافقة أو "صح!"، shake نفي مرح، tilt فضول واهتمام، none بلا حركة.
 - لا تذكر الأداة ولا تصف تعبيرك بالكلام."""
 END_DESCRIPTION = "أنهِ الجلسة بعد أن تودّع العائلة."

@@ -12,6 +12,7 @@
  * If Live is unavailable, it falls back to the older turn-by-turn flow (/session_intro, /converse).
  */
 #pragma once
+#include "hiwar_avatar.h"
 #include <mooncake.h>
 #include <atomic>
 #include <functional>
@@ -40,6 +41,7 @@ private:
     std::atomic<bool> _end_requested{false};
     std::atomic<bool> _interrupt_requested{false};
     std::atomic<bool> _robot_speaking{false};
+    hiwar::HiwarAvatar* _face = nullptr;  // owned by StackChan; touch only under the LVGL lock
 
     // UI changes requested by the session task, applied on the main loop under the LVGL lock.
     std::mutex _ui_mutex;

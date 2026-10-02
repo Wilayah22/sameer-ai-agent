@@ -17,8 +17,8 @@ It works like a voice call:
    reflecting on the day. After 45 s of silence it offers something new, and only after several
    quiet spells in a row does it say goodbye. A call can last up to an hour.
    Hiwar's face follows the conversation: Gemini calls `express` (non-blocking, so speech isn't
-   delayed) with an emotion (happy, sad, doubt, sleepy, neutral; angry only playfully in stories)
-   and a head gesture (nod, shake, tilt). The face relaxes to neutral after a few seconds.
+   delayed) with one of 24 expressions and a head gesture (nod, shake, tilt). The face relaxes to
+   neutral after a few seconds.
 4. While Hiwar talks the microphone isn't sent (so it never hears itself). Tap while it talks to cut
    it short; tap while it listens to end the call. It also ends when the family says goodbye
    (Gemini calls `end_conversation`), after a long silence, or after an hour.
@@ -31,6 +31,16 @@ conversation with the handle Gemini gives it.
 If Live can't start (for example the model name changed), the robot falls back to the older
 turn-by-turn mode: one question (`/session_intro` + `/tts`), then each spoken turn is uploaded as
 WAV to `/converse`. It works, but each reply takes several seconds.
+
+## Hiwar's face
+
+![Hiwar's 24 expressions](hiwar-faces.png)
+
+`app_sameer/hiwar_face.cpp` draws these with LVGL (no image files): glowing cream eyes with dark
+pupils, closed-eye arcs, hearts, sparkles, tears, blush, brows and small gold symbols, all scaled
+from one place (`Scale`). `hiwar_avatar.cpp` puts the face behind StackChan's `Avatar` interface,
+so the stock blink, speaking and breathing modifiers still drive it. To preview changes without the
+robot, render the face with LVGL on a PC (a 320×240 RGB565 canvas) and look at the images.
 
 The RGB bar glows gold only while the microphone is listening. The camera is never used.
 
